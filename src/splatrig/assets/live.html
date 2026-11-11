@@ -66,18 +66,26 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
     <span class="chip" id="c-imu"><span class="dot"></span><span>IMU —</span></span>
     <span class="chip" id="c-clock"><span class="dot"></span><span>Clock —</span></span>
     <span class="chip" id="c-cam"><span class="dot"></span><span>MAX2 —</span></span>
+    <span class="chip" id="c-slam"><span class="dot"></span><span>SLAM off</span></span>
   </div>
 </header>
 <main>
   <section>
     <div class="bar">
-      <h2>LiDAR scan (last 1 s, sensor frame)</h2>
+      <h2 id="view-title">LiDAR scan (last 1 s, sensor frame)</h2>
+      <label>View
+        <select id="mode" aria-label="View">
+          <option value="scan">Scan</option>
+          <option value="map" disabled>Map (SLAM)</option>
+        </select>
+      </label>
       <label>Color
         <select id="color" aria-label="Point color">
           <option value="0">Height</option>
           <option value="1">Reflectivity</option>
         </select>
       </label>
+      <label id="ceiling-label" hidden><input id="ceiling" type="checkbox" checked> Hide ceiling</label>
       <button id="reset" type="button">Reset view</button>
     </div>
     <div class="view">
@@ -118,20 +126,23 @@ const showError = (e) => { $("err").textContent = e ? String(e.message || e) : "
 // ---------- WebGL point renderer ----------
 const canvas = $("cloud");
 const gl = canvas.getContext("webgl", {antialias: false});
-const vs = `attribute vec4 a; uniform mat4 m; uniform float s; uniform int mode; varying vec3 c;
+const vs = `attribute vec4 a; uniform mat4 m; uniform float s; uniform int mode; uniform float zmax; varying vec3 c;
 vec3 ramp(float t){ t=clamp(t,0.,1.); return clamp(vec3(1.5-abs(4.*t-3.),1.5-abs(4.*t-2.),1.5-abs(4.*t-1.)),0.,1.); }
-void main(){ gl_Position=m*vec4(a.xyz,1.); gl_PointSize=s;
+void main(){ gl_Position = a.z > zmax ? vec4(2.,2.,2.,1.) : m*vec4(a.xyz,1.); gl_PointSize=s;
   c = mode==0 ? ramp((a.z+1.5)/4.) : vec3(.15)+vec3(.85)*clamp(a.w/150.,0.,1.); }`;
-const fs = `precision mediump float; varying vec3 c; uniform float u; void main(){ gl_FragColor=vec4(u>0.?c:vec3(.35,.4,.48),1.); }`;
+const fs = `precision mediump float; varying vec3 c; uniform float u; uniform vec3 solid; void main(){ gl_FragColor=vec4(u>0.?c:solid,1.); }`;
 function shader(type, src) { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
   if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
 const prog = gl.createProgram();
 gl.attachShader(prog, shader(gl.VERTEX_SHADER, vs)); gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, fs));
 gl.linkProgram(prog); gl.useProgram(prog);
 const loc = {a: gl.getAttribLocation(prog, "a"), m: gl.getUniformLocation(prog, "m"), s: gl.getUniformLocation(prog, "s"),
-  mode: gl.getUniformLocation(prog, "mode"), u: gl.getUniformLocation(prog, "u")};
-const cloudBuf = gl.createBuffer(), gridBuf = gl.createBuffer();
-let cloudCount = 0;
+  mode: gl.getUniformLocation(prog, "mode"), u: gl.getUniformLocation(prog, "u"),
+  solid: gl.getUniformLocation(prog, "solid"), zmax: gl.getUniformLocation(prog, "zmax")};
+const cloudBuf = gl.createBuffer(), gridBuf = gl.createBuffer(), mapBuf = gl.createBuffer(),
+  routeBuf = gl.createBuffer(), markBuf = gl.createBuffer();
+let cloudCount = 0, mapCount = 0, routeCount = 0, markCount = 0, viewMode = "scan";
+const target = [0, 0, 0];
 const grid = [];
 for (let r = 5; r <= 30; r += 5) for (let i = 0; i < 64; i++) {
   const a0 = i / 64 * 2 * Math.PI, a1 = (i + 1) / 64 * 2 * Math.PI;
@@ -142,12 +153,13 @@ gl.bindBuffer(gl.ARRAY_BUFFER, gridBuf); gl.bufferData(gl.ARRAY_BUFFER, new Floa
 
 const home = {yaw: -2.4, pitch: 0.55, dist: 18};
 const view = {...home};
-function mat(yaw, pitch, dist, aspect) {
+function mat(yaw, pitch, dist, aspect, t) {
   const f = 1 / Math.tan(0.5), n = 0.05, far = 400;
   const p = [f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + n) / (n - far), -1, 0, 0, 2 * far * n / (n - far), 0];
-  const cp = Math.cos(pitch), e = [dist * cp * Math.cos(yaw), dist * cp * Math.sin(yaw), dist * Math.sin(pitch)];
+  const cp = Math.cos(pitch), off = [dist * cp * Math.cos(yaw), dist * cp * Math.sin(yaw), dist * Math.sin(pitch)];
+  const e = [t[0] + off[0], t[1] + off[1], t[2] + off[2]];
   const len = (v) => Math.hypot(...v), norm = (v) => v.map((x) => x / len(v));
-  const zf = norm(e), xr = norm([-zf[1], zf[0], 0]);
+  const zf = norm(off), xr = norm([-zf[1], zf[0], 0]);
   const yu = [zf[1] * xr[2] - zf[2] * xr[1], zf[2] * xr[0] - zf[0] * xr[2], zf[0] * xr[1] - zf[1] * xr[0]];
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const v = [xr[0], yu[0], zf[0], 0, xr[1], yu[1], zf[1], 0, xr[2], yu[2], zf[2], 0, -dot(xr, e), -dot(yu, e), -dot(zf, e), 1];
@@ -163,15 +175,25 @@ function draw() {
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
   gl.viewport(0, 0, w, h); gl.clearColor(0.055, 0.067, 0.086, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   gl.enable(gl.DEPTH_TEST);
-  gl.uniformMatrix4fv(loc.m, false, mat(view.yaw, view.pitch, view.dist, w / h));
+  const map = viewMode === "map";
+  gl.uniform1f(loc.zmax, map && $("ceiling").checked ? target[2] + 1.0 : 1e9);
+  gl.uniformMatrix4fv(loc.m, false, mat(view.yaw, view.pitch, view.dist, w / h, map ? target : [0, 0, 0]));
   gl.enableVertexAttribArray(loc.a);
-  gl.bindBuffer(gl.ARRAY_BUFFER, gridBuf); gl.vertexAttribPointer(loc.a, 4, gl.FLOAT, false, 16, 0);
-  gl.uniform1f(loc.u, 0); gl.drawArrays(gl.LINES, 0, grid.length / 4);
-  if (cloudCount) {
-    gl.bindBuffer(gl.ARRAY_BUFFER, cloudBuf); gl.vertexAttribPointer(loc.a, 4, gl.FLOAT, false, 16, 0);
-    gl.uniform1f(loc.u, 1); gl.uniform1f(loc.s, 2 * dpr); gl.uniform1i(loc.mode, +$("color").value);
-    gl.drawArrays(gl.POINTS, 0, cloudCount);
-  }
+  const lines = (buffer, count, color, stride, kind) => { if (!count) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.vertexAttribPointer(loc.a, stride / 4 === 3 ? 3 : 4, gl.FLOAT, false, stride, 0);
+    gl.uniform1f(loc.u, 0); gl.uniform3fv(loc.solid, color); gl.drawArrays(kind, 0, count); };
+  lines(gridBuf, grid.length / 4, [.35, .4, .48], 16, gl.LINES);
+  const points = (buffer, count) => { if (!count) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.vertexAttribPointer(loc.a, 4, gl.FLOAT, false, 16, 0);
+    gl.uniform1f(loc.u, 1); gl.uniform1f(loc.s, (map ? 1.5 : 2) * dpr); gl.uniform1i(loc.mode, +$("color").value);
+    gl.drawArrays(gl.POINTS, 0, count); };
+  if (map) {
+    points(mapBuf, mapCount);
+    lines(routeBuf, routeCount, [1, .85, .2], 12, gl.LINE_STRIP);
+    for (const [first, color] of [[0, [1, .3, .3]], [2, [.3, 1, .3]], [4, [.3, .5, 1]], [6, [1, .2, 1]]])
+      if (markCount > first) { gl.bindBuffer(gl.ARRAY_BUFFER, markBuf); gl.vertexAttribPointer(loc.a, 3, gl.FLOAT, false, 12, 0);
+        gl.uniform1f(loc.u, 0); gl.uniform3fv(loc.solid, color); gl.drawArrays(gl.LINES, first, 2); }
+  } else points(cloudBuf, cloudCount);
 }
 let dirty = true;
 const redraw = () => { dirty = true; };
@@ -218,7 +240,34 @@ async function points() {
     cloudCount = n; $("count").textContent = `${n.toLocaleString()} points shown`; redraw();
   } catch (e) { /* server restarting */ } finally { fetching = false; }
 }
-setInterval(points, 150);
+setInterval(() => { if (viewMode === "scan") points(); }, 150);
+let mapFetching = false, wantMap = new URLSearchParams(location.search).get("view") === "map";
+async function mapData() {
+  if (viewMode !== "map" || mapFetching) return; mapFetching = true;
+  try {
+    const [m, r] = await Promise.all([fetch("/api/map", {cache: "no-store"}), fetch("/api/route", {cache: "no-store"})]
+      .map((p) => p.then((x) => x.arrayBuffer())));
+    const mn = new DataView(m).getUint32(0, true), rn = new DataView(r).getUint32(0, true);
+    gl.bindBuffer(gl.ARRAY_BUFFER, mapBuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(m, 4, mn * 4), gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, routeBuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(r, 4, rn * 3), gl.DYNAMIC_DRAW);
+    mapCount = mn; routeCount = rn; $("count").textContent = `${mn.toLocaleString()} map voxels · route ${rn} pts`; redraw();
+  } catch (e) { /* server restarting */ } finally { mapFetching = false; }
+}
+setInterval(mapData, 1000);
+function rotateQ(q, v) { const [w, x, y, z] = q, [a, b, c] = v;
+  const tx = 2 * (y * c - z * b), ty = 2 * (z * a - x * c), tz = 2 * (x * b - y * a);
+  return [a + w * tx + y * tz - z * ty, b + w * ty + z * tx - x * tz, c + w * tz + x * ty - y * tx]; }
+function setMarker(pose, camera) {
+  const p = pose.translation, q = pose.quaternion_wxyz, v = [];
+  for (const axis of [[.5, 0, 0], [0, .5, 0], [0, 0, .5]]) { const d = rotateQ(q, axis); v.push(...p, p[0] + d[0], p[1] + d[1], p[2] + d[2]); }
+  if (camera) { const c = camera.translation, d = rotateQ(camera.quaternion_wxyz, [0, 0, 1]); v.push(...c, c[0] + d[0], c[1] + d[1], c[2] + d[2]); }
+  gl.bindBuffer(gl.ARRAY_BUFFER, markBuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(v), gl.DYNAMIC_DRAW);
+  markCount = v.length / 3; target[0] = p[0]; target[1] = p[1]; target[2] = p[2]; redraw();
+}
+$("ceiling").addEventListener("change", redraw);
+$("mode").addEventListener("change", () => { viewMode = $("mode").value; $("ceiling-label").hidden = viewMode !== "map";
+  $("view-title").textContent = viewMode === "map" ? "SLAM map preview (world frame, not loop-corrected)" : "LiDAR scan (last 1 s, sensor frame)";
+  if (viewMode === "map") mapData(); else points(); redraw(); });
 
 function chip(id, level, text) { const c = $(id); c.className = "chip " + level; c.lastElementChild.textContent = text; }
 let previewing = false;
@@ -248,6 +297,15 @@ async function status() {
   else if (C.error) chip("c-cam", "bad", "MAX2 error");
   else chip("c-cam", C.encoding ? "bad" : "ok",
     `MAX2 ${C.encoding ? "REC · " : ""}${C.battery_percent ?? "?"}% · ${C.remaining_video_s != null ? Math.round(C.remaining_video_s / 60) + " min" : "?"}`);
+  const S = s.slam;
+  $("mode").options[1].disabled = !S.enabled;
+  if (!S.enabled) chip("c-slam", "", "SLAM off");
+  else if (!S.running) chip("c-slam", "bad", "SLAM stopped");
+  else if (S.odom_age_s === null) chip("c-slam", "warn", "SLAM initializing");
+  else if (S.odom_age_s > 1) chip("c-slam", "warn", `SLAM no update ${S.odom_age_s.toFixed(0)} s`);
+  else chip("c-slam", "ok", `SLAM ${S.odom_hz.toFixed(0)} Hz · ${(S.map_voxels / 1000).toFixed(0)}k voxels`);
+  if (S.enabled && S.pose) setMarker(S.pose, S.camera);
+  if (S.enabled && wantMap) { wantMap = false; $("mode").value = "map"; $("mode").dispatchEvent(new Event("change")); }
   $("pv").disabled = !C.configured;
   setPreview(!!C.previewing);
   $("rec").classList.toggle("active", R.recording);

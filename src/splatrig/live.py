@@ -21,6 +21,7 @@ import time
 
 from .gopro import GoPro, PreviewDecoder
 from .livox import assess_clock
+from .liveslam import GLIM_POINTS_TOPIC, GlimProcess, SlamState, cloud_points
 from .rosview import POINT, pack_points, ros_import_error, use_dds_profile
 
 WINDOW_FRAMES = 10
@@ -264,7 +265,8 @@ class Recorder:
         temporary.replace(path)
 
 
-def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder):
+def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
+                 slam: SlamState | None = None, glim: GlimProcess | None = None):
     page = ASSET.read_bytes()
 
     class Handler(BaseHTTPRequestHandler):
@@ -293,8 +295,17 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder):
             if path == "/":
                 self.send(200, page, "text/html; charset=utf-8")
             elif path == "/api/status":
+                slam_status = {"enabled": False}
+                if slam is not None:
+                    slam_status = {"enabled": True, "running": bool(glim and glim.running()),
+                                   **slam.status()}
                 self.send_json(200, {"time_ns": time.time_ns(), "lidar": lidar.status(),
-                                     "camera": camera.status(), "record": recorder.status()})
+                                     "camera": camera.status(), "record": recorder.status(),
+                                     "slam": slam_status})
+            elif path == "/api/map" and slam is not None:
+                self.send(200, slam.map_payload(), "application/octet-stream")
+            elif path == "/api/route" and slam is not None:
+                self.send(200, slam.route_payload(), "application/octet-stream")
             elif path == "/api/points":
                 self.send(200, lidar.cloud(), "application/octet-stream")
             elif path == "/api/preview.mjpg":
@@ -347,7 +358,8 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder):
     return Handler
 
 
-def start_ros(lidar: LidarState, lidar_topic: str, imu_topic: str):
+def start_ros(lidar: LidarState, lidar_topic: str, imu_topic: str,
+              slam: SlamState | None = None):
     use_dds_profile()  # also inherited by the ros2 bag record subprocess
     try:
         import rclpy
@@ -355,13 +367,38 @@ def start_ros(lidar: LidarState, lidar_topic: str, imu_topic: str):
         from rclpy.node import Node
         from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
         from rclpy.signals import SignalHandlerOptions
-        from sensor_msgs.msg import Imu
+        from nav_msgs.msg import Odometry
+        from sensor_msgs.msg import Imu, PointCloud2, PointField
         from livox_ros_driver2.msg import CustomMsg
     except ImportError as error:
         raise ValueError(ros_import_error(error)) from error
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     node = Node("splatrig_live")
-    node.create_subscription(CustomMsg, lidar_topic, lidar.add_frame, qos_profile_sensor_data)
+    receive = lidar.add_frame
+    if slam is not None:
+        from .glim import TIMED_FIELDS, TIMED_POINT, pack_timed_points
+        fields = [PointField(name=name, offset=offset, datatype=PointField.FLOAT32, count=1)
+                  for name, offset in TIMED_FIELDS]
+        glim_points = node.create_publisher(PointCloud2, GLIM_POINTS_TOPIC,
+                                            qos_profile_sensor_data)
+
+        def receive(message):
+            data, count = pack_timed_points(message.points)
+            cloud = PointCloud2(header=message.header, height=1, width=count, fields=fields,
+                                is_bigendian=False, point_step=TIMED_POINT.size,
+                                row_step=TIMED_POINT.size * count, is_dense=True)
+            cloud.data = data
+            if rclpy.ok():
+                glim_points.publish(cloud)
+            lidar.add_frame(message)
+
+        def odometry(message):
+            p, q = message.pose.pose.position, message.pose.pose.orientation
+            slam.add_odometry((p.x, p.y, p.z), (q.w, q.x, q.y, q.z))
+        node.create_subscription(Odometry, "/glim_ros/odom_corrected", odometry, 10)
+        node.create_subscription(PointCloud2, "/glim_ros/aligned_points_corrected",
+                                 lambda message: slam.add_scan(cloud_points(message)), 10)
+    node.create_subscription(CustomMsg, lidar_topic, receive, qos_profile_sensor_data)
     # A LiDAR callback takes tens of ms; a deep IMU queue keeps 200 Hz samples
     # from being discarded while it runs.
     imu_qos = QoSProfile(depth=200, reliability=ReliabilityPolicy.BEST_EFFORT)
@@ -384,13 +421,29 @@ def start_ros(lidar: LidarState, lidar_topic: str, imu_topic: str):
     return stop
 
 
+def camera_mount(calibration: Path | None, offset=(0.0, 0.0, 0.0)):
+    """T_rig_sphere (rig = GLIM's IMU frame) from a gyro calibration, if given."""
+    if calibration is None:
+        return None
+    from .geometry import Pose
+    from .glim import MID360_T_LIDAR_IMU
+    rotation = json.loads(calibration.read_text(encoding="utf-8"))["q_lidar_sphere_wxyz"]
+    t = MID360_T_LIDAR_IMU
+    T_rig_lidar = Pose(t[:3], (t[6], *t[3:6])).inverse()
+    return T_rig_lidar.compose(Pose(offset, rotation))
+
+
 def serve(port: int, captures: Path, gopro_host: str | None, lidar_topic: str,
-          imu_topic: str, preview: bool = True):
+          imu_topic: str, preview: bool = True, live_slam: bool = False,
+          calibration: Path | None = None, camera_offset=(0.0, 0.0, 0.0)):
     lidar = LidarState()
     camera = Camera(GoPro(gopro_host) if gopro_host else None)
     recorder = Recorder(captures, camera, (lidar_topic, imu_topic))
-    stop_ros = start_ros(lidar, lidar_topic, imu_topic)
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(lidar, camera, recorder))
+    slam = SlamState(camera=camera_mount(calibration, camera_offset)) if live_slam else None
+    stop_ros = start_ros(lidar, lidar_topic, imu_topic, slam)
+    glim = GlimProcess() if live_slam else None
+    server = ThreadingHTTPServer(("127.0.0.1", port),
+                                 make_handler(lidar, camera, recorder, slam, glim))
     server.daemon_threads = True
     if camera.gopro and preview:
         try:
@@ -411,4 +464,6 @@ def serve(port: int, captures: Path, gopro_host: str | None, lidar_topic: str,
             except ValueError:
                 pass
         camera.close()
+        if glim:
+            glim.stop()
         stop_ros()

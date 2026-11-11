@@ -76,6 +76,12 @@ def parser():
     live.add_argument("--gopro", default="auto", help="Camera IP, 'auto' or 'none'")
     live.add_argument("--no-preview", action="store_true",
                       help="Do not start the MAX2 preview automatically")
+    live.add_argument("--slam", action="store_true",
+                      help="Run GLIM live and show the route, camera pose and a voxel map")
+    live.add_argument("--calibration", type=Path,
+                      help="calibration.json from calibrate-gyro, to show the camera pose")
+    live.add_argument("--camera-offset", type=float, nargs=3, default=(0.0, 0.0, 0.0),
+                      metavar=("X", "Y", "Z"))
     live.add_argument("--lidar-topic", default="/livox/lidar")
     live.add_argument("--imu-topic", default="/livox/imu")
     glim = commands.add_parser(
@@ -161,7 +167,8 @@ def main(argv=None):
             if args.gopro == "auto":
                 host = detect_camera()
             serve(args.port, args.captures, host, args.lidar_topic, args.imu_topic,
-                  preview=not args.no_preview)
+                  preview=not args.no_preview, live_slam=args.slam,
+                  calibration=args.calibration, camera_offset=tuple(args.camera_offset))
             report = {"live": "stopped"}
         elif args.command == "glim-bag":
             report = to_glim_bag(args.bag, args.output, lidar_topic=args.lidar_topic,

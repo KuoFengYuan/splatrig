@@ -189,6 +189,16 @@ tools/splatrig-ros live            # --gopro none for LiDAR only
   (shared memory, 4 MiB UDP buffers) unless a profile is already configured; a
   separately started `ros2 bag record` should set `FASTRTPS_DEFAULT_PROFILES_FILE`
   to `src/splatrig/assets/fastdds.xml`.
+- `--slam` also starts `glim_rosnode` (CPU modules, ROS publishing enabled) in a
+  temporary folder, feeds it the Livox frames as PointCloud2 with per-point time on
+  `/splatrig/glim_points`, and adds a **Map** view: GLIM's corrected scans in a 5 cm
+  first-point voxel map, the route (2 cm spacing) and the current IMU pose. With
+  `--calibration calibration.json --camera-offset X Y Z` the MAX2 forward axis is
+  drawn too. `?view=map` opens the Map view; "Hide ceiling" drops points more than
+  1 m above the current pose. The live map is not moved by later loop closures and
+  is a preview; datasets still come from the offline run of the recorded bag.
+  Replaying the 27 s rotation bag in an isolated domain gave 10 Hz odometry and a
+  23k-voxel map with no dropped voxels.
 - `splatrig ros-pointcloud` republishes CustomMsg as PointCloud2 for RViz2/Foxglove
   (no per-point time).
 

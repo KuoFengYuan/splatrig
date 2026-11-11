@@ -15,7 +15,7 @@ a COLMAP initialization dataset. It did not estimate the trajectory using SLAM.
 
 | Check | Result |
 | --- | --- |
-| Geometry, timing, export and ROS-message conversion | 67 unit tests passed (panorama, LiDAR import, live console, GLIM bridge) |
+| Geometry, timing, export and ROS-message conversion | 70 unit tests passed (panorama, LiDAR import, live console, GLIM bridge) |
 | Python runtimes | Unit tests and CLI smoke passed on Python 3.12 and 3.14 |
 | End-to-end CLI | Demo → validate → replay → export and clock fit passed |
 | Distribution | Wheel built and installed into a clean environment; CLI smoke passed without runtime dependencies |
@@ -32,6 +32,7 @@ a COLMAP initialization dataset. It did not estimate the trajectory using SLAM.
 | End-to-end version 1 | 21 s desk capture → GLIM → MAX2 decode → 198 views → provisional COLMAP model in 72 s; camera mount not yet measured |
 | Live console in a real browser | The MAX2 preview first showed a broken image because cache-busting query strings were not routed; after the fix the user confirmed the live cloud and preview in an interactive desktop browser (narrow width checked headless only) |
 | Gyro calibration, rotation capture | |ω| correlation 0.9996, residual 2.2%, offset +95.8 ms vs command; 264-view provisional dataset with gyro clock; reprojection checked visually only |
+| Live SLAM map view | Rotation bag replayed in domain 76: 10 Hz odometry, 23k voxels, clean GLIM shutdown; headless 1280×900 and 390×844 with no console errors; not yet used with live devices |
 | Mid-360S import fidelity | All 5,672,997 returned points matched the bag in time, float32 xyz, reflectivity, tag and line |
 | Observation tracks | Zero, intentionally: this is an initialization model |
 | Browser | Desktop 1280×900 and narrow 390×844 viewport checked |

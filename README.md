@@ -100,6 +100,7 @@ splatrig demo --panorama --output runs/panorama          # synthetic 360 input
 splatrig panorama-views runs/panorama --output runs/views  # requires ffmpeg
 splatrig import-livox <bag> --output runs/lidar            # requires ROS 2 + Livox driver
 splatrig live                                              # local console, http://127.0.0.1:8090/
+tools/splatrig-ros live --slam --calibration <calibration.json>   # + live GLIM route and map
 splatrig glim-bag <bag> --output runs/glim                 # PointCloud2 copy for GLIM
 tools/splatrig-ros calibrate-gyro <rotation capture> --output runs/mount-calibration
 tools/splatrig-ros process-capture <capture> --output <run> --calibration runs/mount-calibration/calibration.json

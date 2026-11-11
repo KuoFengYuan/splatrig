@@ -106,6 +106,8 @@ class ServerTests(unittest.TestCase):
         status = json.loads(body)
         self.assertEqual(status["lidar"]["clock"], "ptp_inferred")
         self.assertEqual(status["camera"], {"configured": False})
+        self.assertEqual(status["slam"], {"enabled": False})
+        self.assertEqual(self.request("/api/map")[0], 404)
         self.assertFalse(status["record"]["recording"])
         code, cloud = self.request("/api/points")
         self.assertEqual(len(cloud), 4 + 16 * struct.unpack_from("<I", cloud)[0])

@@ -163,6 +163,13 @@ tools/splatrig-ros live            # 只用 LiDAR 時加 --gopro none
   bag 錄製會使用套件內的 Fast DDS 設定（共享記憶體、4 MiB UDP 緩衝區），
   除非已設定其他設定檔；另外手動執行 `ros2 bag record` 時，請將
   `FASTRTPS_DEFAULT_PROFILES_FILE` 設為 `src/splatrig/assets/fastdds.xml`。
+- `--slam` 會在暫存資料夾啟動 `glim_rosnode`（CPU 模組、開啟 ROS 發布），把 Livox 幀以
+  含逐點時間的 PointCloud2 發布到 `/splatrig/glim_points`，並新增 **Map** 視角：
+  GLIM 修正後的掃描以 5 cm 首點體素地圖累積，並顯示路線（間隔 2 cm）與目前的 IMU 位姿。
+  搭配 `--calibration calibration.json --camera-offset X Y Z` 時也會畫出 MAX2 的前方軸。
+  `?view=map` 直接開啟 Map 視角；「Hide ceiling」隱藏高於目前位姿 1 m 以上的點。
+  即時地圖不會因之後的閉環而移動，僅供預覽；資料集仍由錄製 bag 的離線處理產生。
+  在獨立 domain 中重播 27 秒旋轉 bag：里程計 10 Hz、地圖 23k 體素且無丟棄。
 - `splatrig ros-pointcloud` 將 CustomMsg 轉為 PointCloud2 供 RViz2／Foxglove 使用
   （不含逐點時間）。
 

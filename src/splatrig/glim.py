@@ -95,7 +95,7 @@ GLIM_CONFIG = Path("/opt/ros/jazzy/share/glim/config")
 
 def write_glim_config(destination: Path, *, source: Path = GLIM_CONFIG, gpu=False,
                       points_topic="/livox/points", imu_topic="/livox/imu",
-                      t_lidar_imu=MID360_T_LIDAR_IMU) -> dict:
+                      t_lidar_imu=MID360_T_LIDAR_IMU, publish=False) -> dict:
     """Copy GLIM's installed configuration with Livox Mid-360(S) settings applied.
 
     Edits are exact text substitutions on GLIM's commented JSON; a missing key
@@ -112,10 +112,12 @@ def write_glim_config(destination: Path, *, source: Path = GLIM_CONFIG, gpu=Fals
                                  (r'"imu_topic": "[^"]*"', f'"imu_topic": "{imu_topic}"'),
                                  (r'"points_topic": "[^"]*"', f'"points_topic": "{points_topic}"'),
                                  (r'"extension_modules": \[[^\]]*\]',
-                                  '"extension_modules": ["libmemory_monitor.so"]')],
+                                  '"extension_modules": ["libmemory_monitor.so"' +
+                                  (', "librviz_viewer.so"' if publish else "") + "]")],
              "config_sensors.json": [(r'"T_lidar_imu": \[[^\]]*\]',
                                       '"T_lidar_imu": [' +
                                       ", ".join(format(v, "g") for v in t_lidar_imu) + "]")]}
+    # Live runs write into a fresh temporary folder; offline runs into a new output.
     with new_output(destination, source) as root:
         for item in source.iterdir():
             if item.is_file():
