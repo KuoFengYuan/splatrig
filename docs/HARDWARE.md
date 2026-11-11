@@ -250,6 +250,21 @@ which 33 fell inside the trajectory, 198 cube views and a provisional COLMAP mod
 in 72 s. A yaw search correlating LiDAR reflectivity with panorama brightness was
 ambiguous (peaks 0.215 at −25° and 0.208 at −135°) and is not used.
 
+### Planned handheld rig (v3, one-piece print)
+
+Measured from the rig STL (mm, Z up, LiDAR mounting surface at z = 0): the four M3
+holes form a 48 × 36 pattern centered at (0, 0); the two locating pins sit at
+(0, −16) and (0, 23); the MAX2 cradle's 1/4" hole is at (0, 0) with its seat at
+z = 95, between lips 27.5 apart across X, so the MAX2 lenses face ±X. The cable
+holder and column are at −X. The camera mount is therefore directly above the
+LiDAR mount center. Assuming the Mid-360 point origin ~47 mm above its base and the
+MAX2 optical center ~35 mm above its base (both to be confirmed from the device
+drawings), the nominal `--camera-offset` is `0 0 0.083` in meters, independent of
+which lens faces forward. Rotation and per-capture clock still come from
+`calibrate-gyro` after mounting. The column lies inside the LiDAR field of view
+near the sensor and the operator stays in every panorama, so self-points and
+camera masks need handling before training.
+
 ## Gyro calibration of the MAX2 mount
 
 With the MAX2 and LiDAR rigidly fixed together, record ~30 s that starts and ends
