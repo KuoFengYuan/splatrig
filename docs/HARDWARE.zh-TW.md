@@ -14,7 +14,7 @@
 | GLIM | 即時點雲、rig 軌跡與全域最佳化 | 外部相依工具 |
 | ROS 里程計記錄器 | 記錄指定 Odometry topic | 已實作；已測訊息轉換，尚未測即時 ROS |
 | 全景視角轉換 | 透過 ffmpeg 將 equirectangular 轉為固定 PINHOLE 視角 | 已實作；僅以合成全景測試，尚未使用 MAX2 影片 |
-| MAX2 轉接層 | 預覽／控制、原始錄影與時間資訊 | 規劃中 |
+| MAX2 轉接層 | 預覽／控制、原始錄影與時間資訊 | 已以 USB 測試預覽與錄影控制；轉接層規劃中 |
 | SplatRig 核心 | 校正模型、位姿配對、重播與 COLMAP | 已實作，使用合成資料檢查 |
 | 桌面訓練器 | 訓練高斯模型 | 外部工具，尚無實拍品質基準 |
 
@@ -113,6 +113,21 @@ Open GoPro 支援 MAX2，FAQ 指出原始 metadata 需等檔案儲存後才能�
 已完全符合中心投影，也不會自動移除 rolling shutter 或接縫視差。
 先檢查近物與接縫，再信任投影深度。
 
+### 本機 MAX2 預覽檢查
+
+以 USB 測試一台 MAX2（韌體 H24.02.01.22.00，Open GoPro 2.0）。它會以 CDC-NCM
+網路介面出現；請為它建立 DHCP 連線並且不設預設路由（`ipv4.never-default yes`）。
+相機在該網段的 `.51` 位址、8080 埠提供 HTTP。測試順序：開啟有線控制、載入錄影
+預設、開始預覽串流、錄影約 10 秒，再停止、載回拍照預設並釋放控制。相機忙碌時
+載入預設回傳 HTTP 500，閒置後即成功。
+
+- 預覽：透過 UDP 8554 埠的 MPEG-TS，HEVC Main 1408×704、29.97 fps，另含音訊串流。
+  畫面是**左右並排、未拼接的兩個魚眼圓**，不是 equirectangular。
+  從串流中途開始解碼時，在下一個關鍵幀前會回報缺少參考幀。
+- 錄影時預覽：持續 30 fps，但開始錄影時中斷約 1.9 秒、停止時中斷約 1.2 秒。
+- 預覽 PTS 在中斷期間保持連續，因此預覽時間戳不是實際時間，不能用於時間配對。
+- 錄影存為 `.360` 檔；其解碼、時間與拼接尚未測試。
+
 ## 室內外驗收掃描
 
 使用小房間、長走廊、建築外圍及室內走到室外的連續路線；涵蓋重訪、
@@ -121,6 +136,42 @@ Open GoPro 支援 MAX2，FAQ 指出原始 metadata 需等檔案儲存後才能�
 
 影像重投影、保留影像的渲染品質及 LiDAR 表面對齊分別驗證。
 模型外觀不代表尺寸精準，AnyReplica 的位姿實驗可作為這項區分的參考。
+
+## 即時擷取介面
+
+`splatrig live` 在 http://127.0.0.1:8090/ 提供本機頁面（只綁定 localhost）。頁面顯示
+感測器座標中最近一秒的 LiDAR 點、MAX2 預覽、頻率與時鐘狀態，以及錄製按鈕：
+在 `~/captures` 下建立新資料夾，同時以 `ros2 bag record` 錄製原始 Livox topic
+並啟動 MAX2 錄影。請在 ptp4l 與驅動已執行、source ROS 2 與驅動工作區後，
+以系統 Python 執行：
+
+```sh
+PYTHONPATH=<splatrig>/src python3 -m splatrig live            # 只用 LiDAR 時加 --gopro none
+```
+
+- 頁面僅供監看。預覽幀標示為非曝光時間，`capture-log.json` 只記錄主機指令時間；
+  LiDAR 與相機的開始時間是近似值，並未同步。
+- POST 請求需帶 `X-SplatRig: 1` 標頭。伺服器不綁定其他網路介面；手機存取需另行
+  審慎設定。
+- MAX2 預覽執行時，約 380 KB 的 Livox 幀超過 208 KiB 的預設 UDP 接收緩衝區，
+  best-effort DDS 會整幀丟棄（降到 1–3 Hz）。`live`、`ros-pointcloud` 及其啟動的
+  bag 錄製會使用套件內的 Fast DDS 設定（共享記憶體、4 MiB UDP 緩衝區），
+  除非已設定其他設定檔；另外手動執行 `ros2 bag record` 時，請將
+  `FASTRTPS_DEFAULT_PROFILES_FILE` 設為 `src/splatrig/assets/fastdds.xml`。
+- `splatrig ros-pointcloud` 將 CustomMsg 轉為 PointCloud2 供 RViz2／Foxglove 使用
+  （不含逐點時間）。
+
+## GLIM 串接
+
+GLIM 讀取含逐點時間欄位的 PointCloud2，不讀 Livox CustomMsg。
+`splatrig glim-bag <bag> --output <dir>` 寫出 `<dir>/bag`，內含 `/livox/points`
+（x、y、z、intensity，以及相對標頭時間的 `t` 秒數；排除無回波點）與未改動的
+IMU 訊息；原始 bag 不會被修改。請相應設定 GLIM 的 `points_topic`／`imu_topic`，
+並將 `acc_scale` 設為 9.80665。`conversion.json` 中的 MID-360 IMU 偏移取自公開的
+MID-360 配置，尚未針對 Mid-360S 驗證。`splatrig import-trajectory traj_imu.txt
+--revision N --status final --frame imu --output <dir>` 將 GLIM 的 TUM 軌跡以精確
+整數奈秒轉為 `trajectory.jsonl`；只有閉環後的 `traj_*` 檔可標為 `final`，
+`odom_*` 不可。
 
 ## 官方與原始來源
 

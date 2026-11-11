@@ -13,7 +13,9 @@ from . import __version__
 from .clock import fit_clock
 from .demo import create_demo, create_panorama_demo
 from .export import export_colmap, replay
+from .glim import import_trajectory, to_glim_bag
 from .livox import import_livox
+from .rosview import run as view_pointcloud
 from .panorama import INTERPOLATIONS, PRESETS, panorama_views
 from .ros import record_poses
 from .session import prepare, write_json
@@ -62,6 +64,33 @@ def parser():
     livox.add_argument("--imu-topic", default="/livox/imu")
     livox.add_argument("--allow-unsynced", action="store_true",
                        help="Write a provisional recording when PTP sync is not evident")
+    view = commands.add_parser(
+        "ros-pointcloud", help="Republish Livox CustomMsg as PointCloud2 for viewers (ROS 2)")
+    view.add_argument("--input", default="/livox/lidar")
+    view.add_argument("--output", default="/splatrig/points")
+    live = commands.add_parser(
+        "live", help="Local live console: LiDAR cloud, MAX2 preview and recording (ROS 2)")
+    live.add_argument("--port", type=int, default=8090)
+    live.add_argument("--captures", type=Path, default=Path.home() / "captures")
+    live.add_argument("--gopro", default="auto", help="Camera IP, 'auto' or 'none'")
+    live.add_argument("--no-preview", action="store_true",
+                      help="Do not start the MAX2 preview automatically")
+    live.add_argument("--lidar-topic", default="/livox/lidar")
+    live.add_argument("--imu-topic", default="/livox/imu")
+    glim = commands.add_parser(
+        "glim-bag", help="Copy a Livox bag as PointCloud2 with per-point time for GLIM (ROS 2)")
+    glim.add_argument("bag", type=Path)
+    glim.add_argument("--output", type=Path, required=True)
+    glim.add_argument("--lidar-topic", default="/livox/lidar")
+    glim.add_argument("--imu-topic", default="/livox/imu")
+    glim.add_argument("--points-topic", default="/livox/points")
+    trajectory = commands.add_parser(
+        "import-trajectory", help="Convert a TUM trajectory (e.g. GLIM traj_imu.txt)")
+    trajectory.add_argument("tum", type=Path)
+    trajectory.add_argument("--output", type=Path, required=True)
+    trajectory.add_argument("--revision", type=int, required=True)
+    trajectory.add_argument("--status", choices=["live", "final"], required=True)
+    trajectory.add_argument("--frame", default="imu", help="Tracked frame, e.g. imu")
     clock = commands.add_parser("fit-clock", help="Fit paired physical-event timestamps")
     clock.add_argument("events", type=Path, help="CSV columns: camera_ns,reference_ns")
     clock.add_argument("--output", type=Path, required=True)
@@ -88,6 +117,24 @@ def main(argv=None):
             report = import_livox(args.bag, args.output, lidar_topic=args.lidar_topic,
                                   imu_topic=args.imu_topic,
                                   allow_unsynced=args.allow_unsynced)
+        elif args.command == "ros-pointcloud":
+            view_pointcloud(args.input, args.output)
+            report = {"input": args.input, "output": args.output}
+        elif args.command == "live":
+            from .gopro import detect_camera
+            from .live import serve
+            host = {"none": None, "auto": None}.get(args.gopro, args.gopro)
+            if args.gopro == "auto":
+                host = detect_camera()
+            serve(args.port, args.captures, host, args.lidar_topic, args.imu_topic,
+                  preview=not args.no_preview)
+            report = {"live": "stopped"}
+        elif args.command == "glim-bag":
+            report = to_glim_bag(args.bag, args.output, lidar_topic=args.lidar_topic,
+                                 imu_topic=args.imu_topic, points_topic=args.points_topic)
+        elif args.command == "import-trajectory":
+            report = import_trajectory(args.tum, args.output, revision=args.revision,
+                                       status=args.status, frame=args.frame)
         elif args.command == "fit-clock":
             if args.output.exists():
                 raise ValueError(f"Clock output already exists: {args.output}")

@@ -14,7 +14,7 @@ Physical-device capture has not been validated in this repository yet.
 | GLIM | Live cloud, rig trajectory and global optimization | External dependency |
 | ROS odometry recorder | Save configured Odometry topic | Implemented; message conversion tested, live ROS untested |
 | Panorama view converter | Equirectangular → fixed PINHOLE views via ffmpeg | Implemented; synthetic panoramas only, no MAX2 media yet |
-| MAX2 adapter | Preview/control, original media and time metadata | Planned |
+| MAX2 adapter | Preview/control, original media and time metadata | Preview and recording control tested over USB; adapter planned |
 | SplatRig core | Calibration model, pose association, replay, COLMAP | Implemented with synthetic checks |
 | Desktop trainer | Train a Gaussian model | External; no capture-quality benchmark yet |
 
@@ -128,6 +128,27 @@ Removing rotation stabilization alone does not prove a perfectly central camera,
 remove rolling shutter or eliminate stitching parallax. Test near objects and
 seams before trusting projected depths.
 
+### Local MAX2 preview check
+
+One MAX2 (firmware H24.02.01.22.00, Open GoPro 2.0) was tested over USB. It appears
+as a CDC-NCM network interface; give it a DHCP connection with no default route
+(`ipv4.never-default yes`). The camera serves HTTP on port 8080 at the subnet's
+`.51` address. Test sequence: enable wired control, load the video preset, start
+the preview stream, record about 10 s, then stop, reload the photo preset and
+release control. The preset reload returned HTTP 500 while the camera was busy and
+succeeded after it became idle.
+
+- Preview: MPEG-TS over UDP port 8554, HEVC Main 1408×704 at 29.97 fps, plus audio
+  streams. The picture is **two unstitched fisheye circles side by side**, not
+  equirectangular. Decoding joined mid-stream reports missing references until
+  the next keyframe.
+- Preview during recording: frames continued at 30 fps, with gaps of about 1.9 s
+  when recording started and 1.2 s when it stopped.
+- Preview PTS stayed continuous across those gaps, so preview timestamps are not
+  wall-clock time and must not be used for association.
+- Recordings were saved as `.360` files. Their decoding, timing and stitching
+  remain untested.
+
 ## Indoor/outdoor acceptance captures
 
 Use a small room, a long corridor, a building exterior and a continuous
@@ -138,6 +159,46 @@ latency, trajectory gaps, loop correction and resource use.
 Check image reprojection and held-out rendering quality separately from LiDAR
 surface agreement. Model appearance does not establish metric accuracy.
 AnyReplica's pose experiments are useful precedents for this distinction.
+
+## Live capture console
+
+`splatrig live` serves a local page at http://127.0.0.1:8090/ (localhost only). It
+shows the last second of LiDAR points in the sensor frame, the MAX2 preview, rate
+and clock status, and a Record button that starts a `ros2 bag record` of the raw
+Livox topics plus a MAX2 recording into a new folder under `~/captures`. Run it
+with the system Python after sourcing ROS 2 and the driver workspace, with ptp4l
+and the driver already running:
+
+```sh
+PYTHONPATH=<splatrig>/src python3 -m splatrig live            # --gopro none for LiDAR only
+```
+
+- The page is a monitoring aid. Preview frames are labeled not exposure-timed, and
+  `capture-log.json` records host command times only; LiDAR and camera starts are
+  approximate, not synchronized.
+- POST requests require an `X-SplatRig: 1` header. The server never binds to other
+  interfaces; phone access needs a separate, deliberate setup.
+- With the MAX2 preview running, ~380 KB Livox frames overflowed the 208 KiB default
+  UDP receive buffer and best-effort DDS dropped whole frames (1–3 Hz). `live`,
+  `ros-pointcloud` and the bag recorder they start use the packaged Fast DDS profile
+  (shared memory, 4 MiB UDP buffers) unless a profile is already configured; a
+  separately started `ros2 bag record` should set `FASTRTPS_DEFAULT_PROFILES_FILE`
+  to `src/splatrig/assets/fastdds.xml`.
+- `splatrig ros-pointcloud` republishes CustomMsg as PointCloud2 for RViz2/Foxglove
+  (no per-point time).
+
+## GLIM bridge
+
+GLIM reads PointCloud2 with a per-point time field and not Livox CustomMsg.
+`splatrig glim-bag <bag> --output <dir>` writes `<dir>/bag` with `/livox/points`
+(x, y, z, intensity, `t` seconds after the header stamp; no-return points excluded)
+and the unchanged IMU messages; the original bag is not modified. Set GLIM's
+`points_topic`/`imu_topic` accordingly and `acc_scale` to 9.80665. The MID-360
+IMU offset in `conversion.json` comes from the published MID-360 layout and is not
+verified for the Mid-360S. `splatrig import-trajectory traj_imu.txt --revision N
+--status final --frame imu --output <dir>` converts a GLIM TUM trajectory into
+`trajectory.jsonl` with exact integer nanoseconds; use `final` only for the
+loop-closed `traj_*` files, never for `odom_*`.
 
 ## Primary references
 

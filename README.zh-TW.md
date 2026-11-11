@@ -94,6 +94,8 @@ splatrig fit-clock events.csv --output runs/clock.json
 splatrig demo --panorama --output runs/panorama          # 合成 360 輸入
 splatrig panorama-views runs/panorama --output runs/views  # 需要 ffmpeg
 splatrig import-livox <bag> --output runs/lidar            # 需要 ROS 2 與 Livox 驅動
+splatrig live                                              # 本機介面，http://127.0.0.1:8090/
+splatrig glim-bag <bag> --output runs/glim                 # 供 GLIM 使用的 PointCloud2 副本
 splatrig record-poses --help
 python -m unittest discover -s tests -v
 python tools/smoke.py

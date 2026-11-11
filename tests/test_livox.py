@@ -213,5 +213,17 @@ class BinarySessionTests(unittest.TestCase):
                 prepare(binary)
 
 
+class PointCloudViewTests(unittest.TestCase):
+    def test_pack_points_skips_no_returns(self):
+        from splatrig.rosview import POINT, pack_points
+        points = [NS(x=1.5, y=-2.0, z=0.25, reflectivity=200),
+                  NS(x=0.0, y=0.0, z=0.0, reflectivity=0),
+                  NS(x=0.0, y=0.0, z=3.0, reflectivity=7)]
+        data, count = pack_points(points)
+        self.assertEqual(count, 2)
+        self.assertEqual(list(POINT.iter_unpack(data)),
+                         [(1.5, -2.0, 0.25, 200.0), (0.0, 0.0, 3.0, 7.0)])
+
+
 if __name__ == "__main__":
     unittest.main()

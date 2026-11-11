@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SplatRig Live</title>
+<style>
+:root {
+  --bg: #0e1116; --panel: #161b22; --line: #2a313c; --text: #e6edf3; --muted: #8b949e;
+  --ok: #3fb950; --warn: #d29922; --bad: #f85149; --accent: #58a6ff; --rec: #ff4d4f;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+body { min-height: 100vh; display: flex; flex-direction: column; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  padding: 10px 16px; border-bottom: 1px solid var(--line); }
+h1 { font-size: 16px; margin: 0 8px 0 0; font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px;
+  background: var(--panel); border: 1px solid var(--line); font-size: 12px; white-space: nowrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.ok .dot { background: var(--ok); } .warn .dot { background: var(--warn); } .bad .dot { background: var(--bad); }
+main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  grid-template-rows: minmax(0, 1fr); gap: 12px; padding: 12px 16px; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; min-width: 0;
+  display: flex; flex-direction: column; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px;
+  border-bottom: 1px solid var(--line); font-size: 13px; }
+.bar h2 { font-size: 13px; margin: 0; font-weight: 600; flex: 1; }
+.view { position: relative; flex: 1; min-height: 320px; }
+canvas { display: block; width: 100%; height: 100%; position: absolute; inset: 0; touch-action: none;
+  outline: none; }
+canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.overlay { position: absolute; left: 8px; bottom: 8px; font-size: 12px; color: var(--muted);
+  background: rgba(14, 17, 22, .7); padding: 2px 6px; border-radius: 4px; pointer-events: none; }
+.preview { position: relative; background: #000; aspect-ratio: 2 / 1; display: grid; place-items: center; }
+.preview img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.preview .empty { color: var(--muted); font-size: 13px; padding: 16px; text-align: center; }
+.label { position: absolute; top: 6px; left: 6px; font-size: 11px; color: #fff;
+  background: rgba(0, 0, 0, .6); padding: 2px 6px; border-radius: 4px; }
+button, select { font: inherit; font-size: 13px; color: var(--text); background: #21262d;
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; min-height: 32px; }
+button:hover { border-color: var(--muted); }
+button:disabled { opacity: .5; cursor: default; }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.record { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 10px; }
+#rec { background: var(--rec); border-color: var(--rec); color: #fff; font-weight: 600; min-width: 132px; min-height: 40px; }
+#rec.active { background: #21262d; color: var(--rec); }
+.info { padding: 0 10px 12px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.info dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 10px; margin: 0; }
+.info dt { color: var(--muted); } .info dd { margin: 0; color: var(--text); }
+.error { color: var(--bad); font-size: 12px; padding: 0 10px 8px; min-height: 1em; }
+.side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+@media (max-width: 900px) {
+  main { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+  .view { min-height: 58vh; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>SplatRig Live</h1>
+  <div class="chips" aria-live="polite">
+    <span class="chip" id="c-lidar"><span class="dot"></span><span>LiDAR —</span></span>
+    <span class="chip" id="c-imu"><span class="dot"></span><span>IMU —</span></span>
+    <span class="chip" id="c-clock"><span class="dot"></span><span>Clock —</span></span>
+    <span class="chip" id="c-cam"><span class="dot"></span><span>MAX2 —</span></span>
+  </div>
+</header>
+<main>
+  <section>
+    <div class="bar">
+      <h2>LiDAR scan (last 1 s, sensor frame)</h2>
+      <label>Color
+        <select id="color" aria-label="Point color">
+          <option value="0">Height</option>
+          <option value="1">Reflectivity</option>
+        </select>
+      </label>
+      <button id="reset" type="button">Reset view</button>
+    </div>
+    <div class="view">
+      <canvas id="cloud" tabindex="0" aria-label="LiDAR point cloud. Drag or arrow keys to orbit, wheel or +/- to zoom, R to reset."></canvas>
+      <div class="overlay" id="count">waiting for points…</div>
+    </div>
+  </section>
+  <div class="side">
+    <section>
+      <div class="bar">
+        <h2>MAX2 preview</h2>
+        <button id="pv" type="button">Start preview</button>
+      </div>
+      <div class="preview" id="preview">
+        <div class="empty" id="pv-empty">Preview off</div>
+        <span class="label">Preview · dual fisheye · not exposure-timed</span>
+      </div>
+    </section>
+    <section>
+      <div class="record">
+        <button id="rec" type="button">● Record</button>
+        <span id="rec-state">Idle</span>
+      </div>
+      <div class="error" id="err" role="alert"></div>
+      <div class="info"><dl id="rec-info"></dl></div>
+      <div class="info">LiDAR bag and MAX2 recording start together from host commands;
+        their start times are approximate, not synchronized.</div>
+    </section>
+  </div>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const post = (path) => fetch(path, {method: "POST", headers: {"X-SplatRig": "1"}})
+  .then(async (r) => { const body = await r.json(); if (!r.ok) throw new Error(body.error || r.status); return body; });
+const showError = (e) => { $("err").textContent = e ? String(e.message || e) : ""; };
+
+// ---------- WebGL point renderer ----------
+const canvas = $("cloud");
+const gl = canvas.getContext("webgl", {antialias: false});
+const vs = `attribute vec4 a; uniform mat4 m; uniform float s; uniform int mode; varying vec3 c;
+vec3 ramp(float t){ t=clamp(t,0.,1.); return clamp(vec3(1.5-abs(4.*t-3.),1.5-abs(4.*t-2.),1.5-abs(4.*t-1.)),0.,1.); }
+void main(){ gl_Position=m*vec4(a.xyz,1.); gl_PointSize=s;
+  c = mode==0 ? ramp((a.z+1.5)/4.) : vec3(.15)+vec3(.85)*clamp(a.w/150.,0.,1.); }`;
+const fs = `precision mediump float; varying vec3 c; uniform float u; void main(){ gl_FragColor=vec4(u>0.?c:vec3(.35,.4,.48),1.); }`;
+function shader(type, src) { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+const prog = gl.createProgram();
+gl.attachShader(prog, shader(gl.VERTEX_SHADER, vs)); gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, fs));
+gl.linkProgram(prog); gl.useProgram(prog);
+const loc = {a: gl.getAttribLocation(prog, "a"), m: gl.getUniformLocation(prog, "m"), s: gl.getUniformLocation(prog, "s"),
+  mode: gl.getUniformLocation(prog, "mode"), u: gl.getUniformLocation(prog, "u")};
+const cloudBuf = gl.createBuffer(), gridBuf = gl.createBuffer();
+let cloudCount = 0;
+const grid = [];
+for (let r = 5; r <= 30; r += 5) for (let i = 0; i < 64; i++) {
+  const a0 = i / 64 * 2 * Math.PI, a1 = (i + 1) / 64 * 2 * Math.PI;
+  grid.push(r * Math.cos(a0), r * Math.sin(a0), 0, 0, r * Math.cos(a1), r * Math.sin(a1), 0, 0);
+}
+grid.push(0, 0, 0, 0, 1, 0, 0, 0,  0, 0, 0, 0, 0, 1, 0, 0,  0, 0, 0, 0, 0, 0, 1, 0);
+gl.bindBuffer(gl.ARRAY_BUFFER, gridBuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(grid), gl.STATIC_DRAW);
+
+const home = {yaw: -2.4, pitch: 0.55, dist: 18};
+const view = {...home};
+function mat(yaw, pitch, dist, aspect) {
+  const f = 1 / Math.tan(0.5), n = 0.05, far = 400;
+  const p = [f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + n) / (n - far), -1, 0, 0, 2 * far * n / (n - far), 0];
+  const cp = Math.cos(pitch), e = [dist * cp * Math.cos(yaw), dist * cp * Math.sin(yaw), dist * Math.sin(pitch)];
+  const len = (v) => Math.hypot(...v), norm = (v) => v.map((x) => x / len(v));
+  const zf = norm(e), xr = norm([-zf[1], zf[0], 0]);
+  const yu = [zf[1] * xr[2] - zf[2] * xr[1], zf[2] * xr[0] - zf[0] * xr[2], zf[0] * xr[1] - zf[1] * xr[0]];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const v = [xr[0], yu[0], zf[0], 0, xr[1], yu[1], zf[1], 0, xr[2], yu[2], zf[2], 0, -dot(xr, e), -dot(yu, e), -dot(zf, e), 1];
+  const out = new Float32Array(16);
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+    let s = 0; for (let k = 0; k < 4; k++) s += p[k * 4 + r] * v[c * 4 + k]; out[c * 4 + r] = s;
+  }
+  return out;
+}
+function draw() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = Math.max(1, Math.round(canvas.clientWidth * dpr)), h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  gl.viewport(0, 0, w, h); gl.clearColor(0.055, 0.067, 0.086, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);
+  gl.uniformMatrix4fv(loc.m, false, mat(view.yaw, view.pitch, view.dist, w / h));
+  gl.enableVertexAttribArray(loc.a);
+  gl.bindBuffer(gl.ARRAY_BUFFER, gridBuf); gl.vertexAttribPointer(loc.a, 4, gl.FLOAT, false, 16, 0);
+  gl.uniform1f(loc.u, 0); gl.drawArrays(gl.LINES, 0, grid.length / 4);
+  if (cloudCount) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, cloudBuf); gl.vertexAttribPointer(loc.a, 4, gl.FLOAT, false, 16, 0);
+    gl.uniform1f(loc.u, 1); gl.uniform1f(loc.s, 2 * dpr); gl.uniform1i(loc.mode, +$("color").value);
+    gl.drawArrays(gl.POINTS, 0, cloudCount);
+  }
+}
+let dirty = true;
+const redraw = () => { dirty = true; };
+(function loop() { if (dirty) { draw(); dirty = false; } requestAnimationFrame(loop); })();
+new ResizeObserver(redraw).observe(canvas);
+$("color").addEventListener("change", redraw);
+const reset = () => { Object.assign(view, home); redraw(); };
+$("reset").addEventListener("click", reset);
+const clampPitch = () => { view.pitch = Math.max(-1.45, Math.min(1.45, view.pitch)); };
+const pointers = new Map(); let pinch = 0;
+canvas.addEventListener("pointerdown", (e) => { canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, [e.clientX, e.clientY]); });
+canvas.addEventListener("pointerup", (e) => { pointers.delete(e.pointerId); pinch = 0; });
+canvas.addEventListener("pointercancel", (e) => { pointers.delete(e.pointerId); pinch = 0; });
+canvas.addEventListener("pointermove", (e) => {
+  if (!pointers.has(e.pointerId)) return;
+  const [x, y] = pointers.get(e.pointerId); pointers.set(e.pointerId, [e.clientX, e.clientY]);
+  if (pointers.size === 1) { view.yaw -= (e.clientX - x) * 0.008; view.pitch += (e.clientY - y) * 0.008; clampPitch(); }
+  else if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    if (pinch) view.dist = Math.max(1, Math.min(200, view.dist * pinch / d)); pinch = d;
+  }
+  redraw();
+});
+canvas.addEventListener("wheel", (e) => { e.preventDefault(); view.dist = Math.max(1, Math.min(200, view.dist * Math.exp(e.deltaY * 0.001))); redraw(); }, {passive: false});
+canvas.addEventListener("keydown", (e) => {
+  const k = e.key;
+  if (k === "ArrowLeft") view.yaw += 0.1; else if (k === "ArrowRight") view.yaw -= 0.1;
+  else if (k === "ArrowUp") view.pitch += 0.1; else if (k === "ArrowDown") view.pitch -= 0.1;
+  else if (k === "+" || k === "=") view.dist = Math.max(1, view.dist * 0.9);
+  else if (k === "-") view.dist = Math.min(200, view.dist * 1.1);
+  else if (k === "r" || k === "R") { reset(); return; } else return;
+  e.preventDefault(); clampPitch(); redraw();
+});
+
+// ---------- data polling ----------
+let fetching = false;
+async function points() {
+  if (fetching) return; fetching = true;
+  try {
+    const buf = await (await fetch("/api/points", {cache: "no-store"})).arrayBuffer();
+    const n = new DataView(buf).getUint32(0, true);
+    gl.bindBuffer(gl.ARRAY_BUFFER, cloudBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(buf, 4, n * 4), gl.DYNAMIC_DRAW);
+    cloudCount = n; $("count").textContent = `${n.toLocaleString()} points shown`; redraw();
+  } catch (e) { /* server restarting */ } finally { fetching = false; }
+}
+setInterval(points, 150);
+
+function chip(id, level, text) { const c = $(id); c.className = "chip " + level; c.lastElementChild.textContent = text; }
+let previewing = false;
+function setPreview(on) {
+  if (on === previewing) return; previewing = on;
+  $("pv").textContent = on ? "Stop preview" : "Start preview";
+  const box = $("preview"), old = box.querySelector("img"); if (old) old.remove();
+  $("pv-empty").hidden = on;
+  if (on) { const img = document.createElement("img"); img.alt = "MAX2 live preview (dual fisheye)";
+    img.src = "/api/preview.mjpg?" + Date.now(); box.prepend(img); }
+}
+function fmtTime(ns) { return ns ? new Date(ns / 1e6).toLocaleTimeString() : "—"; }
+async function status() {
+  let s;
+  try { s = await (await fetch("/api/status", {cache: "no-store"})).json(); }
+  catch (e) { chip("c-lidar", "bad", "Server offline"); return; }
+  const L = s.lidar, C = s.camera, R = s.record;
+  const fresh = L.lidar_age_s !== null && L.lidar_age_s < 0.5;
+  chip("c-lidar", fresh && L.lidar_hz > 8 ? "ok" : fresh ? "warn" : "bad",
+    fresh ? `LiDAR ${L.lidar_hz.toFixed(1)} Hz · ${(L.points_per_frame / 1000).toFixed(1)}k pts` : "LiDAR no data");
+  const imuFresh = L.imu_age_s !== null && L.imu_age_s < 0.5;
+  chip("c-imu", imuFresh && L.imu_hz > 150 ? "ok" : imuFresh ? "warn" : "bad", imuFresh ? `IMU ${Math.round(L.imu_hz)} Hz` : "IMU no data");
+  const clock = {ptp_inferred: ["ok", "PTP synced (inferred)"], host_arrival_suspected: ["bad", "Not synced: host arrival time"],
+    indeterminate: ["warn", "Clock indeterminate"]}[L.clock] || ["warn", "Clock " + L.clock];
+  chip("c-clock", fresh ? clock[0] : "bad", fresh ? clock[1] : "Clock —");
+  if (!C.configured) chip("c-cam", "", "MAX2 not connected");
+  else if (C.error) chip("c-cam", "bad", "MAX2 error");
+  else chip("c-cam", C.encoding ? "bad" : "ok",
+    `MAX2 ${C.encoding ? "REC · " : ""}${C.battery_percent ?? "?"}% · ${C.remaining_video_s != null ? Math.round(C.remaining_video_s / 60) + " min" : "?"}`);
+  $("pv").disabled = !C.configured;
+  setPreview(!!C.previewing);
+  $("rec").classList.toggle("active", R.recording);
+  $("rec").textContent = R.recording ? "■ Stop" : "● Record";
+  $("rec-state").textContent = R.recording ? `Recording ${R.elapsed_s?.toFixed(0) ?? 0} s` : "Idle";
+  const last = R.last, rows = [];
+  if (last) {
+    rows.push(["Folder", R.folder], ["LiDAR start", fmtTime(last.lidar.started_ns)]);
+    if (last.lidar.stopped_ns) rows.push(["LiDAR stop", fmtTime(last.lidar.stopped_ns) + ` (exit ${last.lidar.exit_code})`]);
+    const g = last.gopro;
+    if (g && g.error) rows.push(["MAX2", g.error]);
+    else if (g) { rows.push(["MAX2 start ack", fmtTime(g.start_ack_ns)]);
+      if (g.new_media) rows.push(["MAX2 files", g.new_media.join(", ") || "none"]); if (g.stop_error) rows.push(["MAX2", g.stop_error]); }
+  } else rows.push(["Captures", R.captures]);
+  $("rec-info").replaceChildren(...rows.flatMap(([k, v]) => { const dt = document.createElement("dt"), dd = document.createElement("dd");
+    dt.textContent = k; dd.textContent = v; return [dt, dd]; }));
+}
+setInterval(status, 1000); status();
+$("pv").addEventListener("click", () => post(previewing ? "/api/preview/stop" : "/api/preview/start").then(() => { showError(); status(); }, showError));
+$("rec").addEventListener("click", () => {
+  const busy = $("rec"); busy.disabled = true;
+  post($("rec").classList.contains("active") ? "/api/record/stop" : "/api/record/start")
+    .then(() => showError(), showError).finally(() => { busy.disabled = false; status(); });
+});
+</script>
+</body>
+</html>

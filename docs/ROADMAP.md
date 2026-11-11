@@ -56,6 +56,8 @@ after agreeing on what capture data can be released.
 ## M4 — capture experience and broader release
 
 - Live point cloud, camera route, preview-frame poses and coverage feedback.
+  A localhost console shows the live cloud, MAX2 preview and status and records
+  both devices; camera route and coverage await live SLAM.
 - Bounded map storage, status/recovery and reproducible installation.
 - AnyReplica external-scan adapter for review/training, with explicit axes/units.
 - Demonstration footage from physical hardware, calibration records and a sample.

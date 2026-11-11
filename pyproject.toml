@@ -24,4 +24,4 @@ splatrig = "splatrig.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-splatrig = ["assets/*.html"]
+splatrig = ["assets/*.html", "assets/*.xml"]
