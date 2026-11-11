@@ -14,7 +14,7 @@ capture/
 ├── clock.json
 ├── trajectory.jsonl
 ├── frames.jsonl
-├── points.jsonl
+├── points.jsonl   （或 points.bin）
 └── images/
 ```
 
@@ -146,6 +146,12 @@ quaternion_wxyz，表示 T_world_rig。時間嚴格遞增，所有 revision
 整數 rgb（0～255）。沒有顏色時使用灰色。裝置轉接層必須保存逐點擷取時間，
 不能將整個移動掃描都標成封包到達時間。
 
+掃描可改用二進位 `points.bin` 取代 points.jsonl（不可兩者並存）。檔案開頭為
+8 位元組識別碼 `SRPOINT1`、little-endian uint32 標頭長度、UTF-8 JSON 標頭，
+並以零補齊到 8 位元組邊界。之後是固定 24 位元組的紀錄：int64 timestamp_ns、
+LiDAR 座標 float32 x/y/z（公尺）、uint8 反射率、tag、line 及一個保留位元組。
+標頭列出這些欄位；讀取器拒絕其他排列方式及不完整紀錄。二進位點使用預設灰色。
+
 ```text
 T_world_camera(t) = T_world_rig(t) · T_rig_camera
 p_world(t)        = T_world_rig(t) · T_rig_lidar · p_lidar(t)
@@ -154,6 +160,33 @@ p_world(t)        = T_world_rig(t) · T_rig_lidar · p_lidar(t)
 平移使用線性插值，旋轉使用最短路徑 SLERP；不允許時間外插。
 跨越超過 max_pose_gap_ns 的區段會被拒絕；直接查詢已有的時間點不需要插值。
 閉環修正後，照片與點雲皆依同一版軌跡重算。
+
+## LiDAR 錄製資料
+
+`splatrig import-livox BAG --output DIR` 將 livox_ros_driver2 的 rosbag2 錄製
+（CustomMsg 點雲與 sensor_msgs/Imu）轉為 LiDAR 錄製資料；這是後續組成掃描的輸入，
+不是完整掃描：
+
+```text
+recording/
+├── recording.json   來源、數量、空缺、時鐘證據與限制
+├── points.bin       逐點時間 = timebase + offset_time；排除無回波 (0, 0, 0)
+└── imu.jsonl        timestamp_ns、angular_velocity_rad_s、linear_acceleration
+```
+
+IMU 加速度單位依平均大小記錄為 `g` 或 `m/s^2`，數值不重新縮放。排除的無回波點、
+幀與 IMU 空缺、重疊幀及未遞增的 IMU 時間戳都會計數，不會默默丟棄。
+
+CustomMsg 不帶裝置的時間戳類型，而驅動在未同步時會改用主機收包時間。
+因此匯入器從時間結構判斷時鐘：同步的時間戳讓封包邊界維持固定點距，
+幀間隔集中在少數離散值；收包時間則帶有抖動。`ptp_inferred` 需要封包邊界集中度
+至少 0.9、雙區間幀間隔集中度至少 0.8，且沒有倒退的偏移。其他狀態
+（`host_arrival_suspected`、`indeterminate`）會停止匯入，除非以
+`--allow-unsynced` 寫出標記為暫定的錄製資料。這是由資料推斷，並非裝置自身回報；
+PTP 設定需另外記錄。
+
+匯入器執行時需要 ROS 2 與驅動的訊息套件，請在 source 兩個環境後以系統 Python
+執行。離線核心不匯入 ROS。
 
 ## 輸出與限制
 

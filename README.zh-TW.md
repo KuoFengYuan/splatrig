@@ -93,6 +93,7 @@ splatrig validate runs/demo
 splatrig fit-clock events.csv --output runs/clock.json
 splatrig demo --panorama --output runs/panorama          # 合成 360 輸入
 splatrig panorama-views runs/panorama --output runs/views  # 需要 ffmpeg
+splatrig import-livox <bag> --output runs/lidar            # 需要 ROS 2 與 Livox 驅動
 splatrig record-poses --help
 python -m unittest discover -s tests -v
 python tools/smoke.py

@@ -2,7 +2,8 @@
 
 **English** | [繁體中文](LOCAL_TESTS.zh-TW.md)
 
-Date: 2026-11-11. This is a local software check, with no connected MAX2 or MID-360.
+Date: 2026-11-11. Software checks ran locally; one Mid-360S was later connected
+for a stationary recording. No MAX2 was connected.
 No repository or captured data was published to GitHub.
 
 ## What actually ran
@@ -14,7 +15,7 @@ a COLMAP initialization dataset. It did not estimate the trajectory using SLAM.
 
 | Check | Result |
 | --- | --- |
-| Geometry, timing, export and ROS-message conversion | 37 unit tests passed, including 9 panorama tests |
+| Geometry, timing, export and ROS-message conversion | 47 unit tests passed, including 9 panorama and 10 LiDAR-import tests |
 | Python runtimes | Unit tests and CLI smoke passed on Python 3.12 and 3.14 |
 | End-to-end CLI | Demo → validate → replay → export and clock fit passed |
 | Distribution | Wheel built and installed into a clean environment; CLI smoke passed without runtime dependencies |
@@ -24,6 +25,8 @@ a COLMAP initialization dataset. It did not estimate the trajectory using SLAM.
 | Panorama geometry | Each view matched a direct render of the same scene; ±1° rotations never matched better |
 | ffmpeg convention probe | ffmpeg 6.1.1: 0.39 input pixels maximum error, −0.09/0.11 pixels mean bias |
 | COLMAP native reader, panorama views | Read 6 cameras, 48 registered images and 14,806 points |
+| Physical Mid-360S, stationary 59.3 s | No frame/IMU gaps; clock `ptp_inferred` (boundary 0.9996, frame steps 0.9932) |
+| Mid-360S import fidelity | All 5,672,997 returned points matched the bag in time, float32 xyz, reflectivity, tag and line |
 | Observation tracks | Zero, intentionally: this is an initialization model |
 | Browser | Desktop 1280×900 and narrow 390×844 viewport checked |
 | Browser controls | Pointer/keyboard orbit, wheel zoom, cameras and reset passed |
@@ -41,7 +44,8 @@ that runtime and hosted CI have not been run in this local-only phase.
 
 ## Not established by these checks
 
-- Physical sensor discovery, control or capture.
+- MAX2 capture, or any moving or long-duration LiDAR capture.
+- Detection of an unsynchronized physical recording (tested with modeled driver stamps only).
 - Real-time SLAM, loop closure or measured live throughput.
 - MAX2 exposure synchronization or actual rig calibration.
 - Original .360/EAC decoding and conversion of real MAX2 stitched panoramas.

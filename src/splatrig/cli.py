@@ -13,6 +13,7 @@ from . import __version__
 from .clock import fit_clock
 from .demo import create_demo, create_panorama_demo
 from .export import export_colmap, replay
+from .livox import import_livox
 from .panorama import INTERPOLATIONS, PRESETS, panorama_views
 from .ros import record_poses
 from .session import prepare, write_json
@@ -53,6 +54,14 @@ def parser():
     views.add_argument("--interp", choices=INTERPOLATIONS, default="lanczos")
     views.add_argument("--ffmpeg", default="ffmpeg")
     views.add_argument("--ffprobe", default="ffprobe")
+    livox = commands.add_parser(
+        "import-livox", help="Convert a Livox rosbag2 recording (ROS 2 required)")
+    livox.add_argument("bag", type=Path)
+    livox.add_argument("--output", type=Path, required=True)
+    livox.add_argument("--lidar-topic", default="/livox/lidar")
+    livox.add_argument("--imu-topic", default="/livox/imu")
+    livox.add_argument("--allow-unsynced", action="store_true",
+                       help="Write a provisional recording when PTP sync is not evident")
     clock = commands.add_parser("fit-clock", help="Fit paired physical-event timestamps")
     clock.add_argument("events", type=Path, help="CSV columns: camera_ns,reference_ns")
     clock.add_argument("--output", type=Path, required=True)
@@ -75,6 +84,10 @@ def main(argv=None):
                                     views_file=args.views, size=args.size,
                                     fov_deg=args.fov_deg, interp=args.interp,
                                     ffmpeg=args.ffmpeg, ffprobe=args.ffprobe)
+        elif args.command == "import-livox":
+            report = import_livox(args.bag, args.output, lidar_topic=args.lidar_topic,
+                                  imu_topic=args.imu_topic,
+                                  allow_unsynced=args.allow_unsynced)
         elif args.command == "fit-clock":
             if args.output.exists():
                 raise ValueError(f"Clock output already exists: {args.output}")

@@ -15,7 +15,7 @@ capture/
 ├── clock.json
 ├── trajectory.jsonl
 ├── frames.jsonl
-├── points.jsonl
+├── points.jsonl   (or points.bin)
 └── images/
 ```
 
@@ -160,6 +160,14 @@ frame and optional integer rgb in [0, 255]. Missing color defaults to gray.
 An adapter must preserve each point's acquisition time rather than assigning one
 packet-receipt time to an entire moving scan.
 
+Instead of points.jsonl, a session may contain the binary `points.bin` (never both).
+It starts with the 8-byte magic `SRPOINT1`, a little-endian uint32 header length,
+a UTF-8 JSON header and zero padding to an 8-byte boundary. Fixed 24-byte records
+follow: int64 timestamp_ns, float32 x/y/z in meters in the LiDAR frame, uint8
+reflectivity, tag and line, and one reserved byte. The header lists these fields;
+readers reject other layouts and truncated records. Binary points use the default
+gray color.
+
 ```text
 T_world_camera(t) = T_world_rig(t) · T_rig_camera
 p_world(t)        = T_world_rig(t) · T_rig_lidar · p_lidar(t)
@@ -169,6 +177,37 @@ Translation is linearly interpolated and rotation uses shortest-path SLERP.
 No extrapolation is allowed. Interpolation across a gap above max_pose_gap_ns is
 rejected. Querying an exact recorded pose does not require interpolation.
 Both photos and points are recomputed from the same revision after loop correction.
+
+## LiDAR recordings
+
+`splatrig import-livox BAG --output DIR` converts a livox_ros_driver2 rosbag2
+recording (CustomMsg points and sensor_msgs/Imu) into a LiDAR recording, an input
+for later session assembly rather than a complete session:
+
+```text
+recording/
+├── recording.json   source, counts, gaps, clock evidence and limitations
+├── points.bin       per-point time = timebase + offset_time; no-return (0, 0, 0) excluded
+└── imu.jsonl        timestamp_ns, angular_velocity_rad_s, linear_acceleration
+```
+
+The IMU acceleration unit is recorded from the mean magnitude (`g` or `m/s^2`);
+values are not rescaled. Excluded no-return points, frame and IMU gaps, overlapping
+frames and non-increasing IMU stamps are counted, never dropped silently.
+
+CustomMsg does not carry the device's timestamp type, and an unsynchronized driver
+substitutes host packet-arrival time. The importer therefore classifies the clock
+from timing structure. Synchronized stamps place packet boundaries at one fixed
+point spacing and frame steps on a few discrete values; arrival stamps inherit
+jitter. Status `ptp_inferred` needs a boundary concentration of at least 0.9 and
+two-window frame-step concentration of at least 0.8, with no backwards offsets.
+Other statuses (`host_arrival_suspected`, `indeterminate`) stop the import unless
+`--allow-unsynced` writes a recording marked provisional. This is an inference
+from data, not the device's own report; record the PTP setup separately.
+
+The importer needs ROS 2 and the driver's message package at run time, so run it
+with the system Python after sourcing both environments. The offline core does
+not import ROS.
 
 ## Outputs and limits
 

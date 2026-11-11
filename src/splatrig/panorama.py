@@ -238,8 +238,12 @@ def panorama_views(source: Path, destination: Path, *, layout="cube", views_file
                     Pose((0, 0, 0), view.rotation())).to_dict()}
                for index, view in enumerate(views, 1)]
     with new_output(destination, source) as root:
-        for name in ["capture-meta.json", "clock.json", "trajectory.jsonl", "points.jsonl"]:
+        for name in ["capture-meta.json", "clock.json", "trajectory.jsonl"]:
             shutil.copyfile(source / name, root / name)
+        points = [name for name in ["points.jsonl", "points.bin"] if (source / name).exists()]
+        if len(points) != 1:
+            raise ValueError("Panorama sources need exactly one of points.jsonl or points.bin")
+        shutil.copyfile(source / points[0], root / points[0])
         write_json(root / "rig.json", {**rig, "cameras": cameras})
         frames = []
         for view in views:

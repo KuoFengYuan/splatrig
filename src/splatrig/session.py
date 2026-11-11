@@ -11,6 +11,7 @@ import struct
 
 from .clock import Clock
 from .geometry import Pose, Trajectory, nanoseconds, vector
+from .pointlog import iter_points
 
 
 def reject_nonfinite(value):
@@ -89,6 +90,26 @@ class Camera:
                    Pose.from_dict(data["T_rig_camera"]))
 
 
+DEFAULT_RGB = (180, 190, 210)
+
+
+def point_samples(root: Path):
+    """Yield (timestamp_ns, xyz, rgb) from points.jsonl or the binary points.bin."""
+    text, binary = root / "points.jsonl", root / "points.bin"
+    if text.exists() and binary.exists():
+        raise ValueError("Session must contain points.jsonl or points.bin, not both")
+    if binary.exists():
+        for timestamp, x, y, z, *_ in iter_points(binary):
+            yield nanoseconds(timestamp), vector((x, y, z), 3), DEFAULT_RGB
+        return
+    for sample in read_jsonl(text):
+        rgb = sample.get("rgb", list(DEFAULT_RGB))
+        if (len(rgb) != 3 or any(isinstance(c, bool) or not isinstance(c, int) or
+                                not 0 <= c <= 255 for c in rgb)):
+            raise ValueError("Point RGB must contain three integers in [0, 255]")
+        yield nanoseconds(sample["timestamp_ns"]), vector(sample["xyz"], 3), rgb
+
+
 @dataclass
 class Prepared:
     root: Path
@@ -162,13 +183,8 @@ def prepare(root: Path, *, allow_provisional=False, voxel_size=0.05,
         raise ValueError("Session has no image frames")
     frames.sort(key=lambda f: (f["reference_timestamp_ns"], f["id"]))
     voxels, raw_count = {}, 0
-    for sample in read_jsonl(root / "points.jsonl"):
-        xyz = vector(sample["xyz"], 3)
-        rgb = sample.get("rgb", [180, 190, 210])
-        if (len(rgb) != 3 or any(isinstance(c, bool) or not isinstance(c, int) or
-                                not 0 <= c <= 255 for c in rgb)):
-            raise ValueError("Point RGB must contain three integers in [0, 255]")
-        pose = trajectory.at(nanoseconds(sample["timestamp_ns"]))
+    for timestamp, xyz, rgb in point_samples(root):
+        pose = trajectory.at(timestamp)
         point = pose.compose(T_rig_lidar).transform(xyz)
         key = tuple(math.floor(v / voxel_size) for v in point)
         if key not in voxels:

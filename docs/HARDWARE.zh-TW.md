@@ -10,7 +10,7 @@
 | 元件 | 工作 | 目前狀態 |
 | --- | --- | --- |
 | MID-360 與內建 IMU | 帶時間戳的點與慣性資料 | 外部驅動 |
-| Livox Driver 2 | 裝置傳輸，保留逐點時間 | 待整合 |
+| Livox Driver 2 | 裝置傳輸，保留逐點時間 | Mid-360S 已以 PTP 運作；已實作 bag 匯入器 |
 | GLIM | 即時點雲、rig 軌跡與全域最佳化 | 外部相依工具 |
 | ROS 里程計記錄器 | 記錄指定 Odometry topic | 已實作；已測訊息轉換，尚未測即時 ROS |
 | 全景視角轉換 | 透過 ffmpeg 將 equirectangular 轉為固定 PINHOLE 視角 | 已實作；僅以合成全景測試，尚未使用 MAX2 影片 |
@@ -54,6 +54,46 @@ splatrig record-poses --output runs/live-poses.jsonl \
 
 這份紀錄是即時里程計，不是閉環修正後的最終歷史。完整轉接層仍需記錄
 原始逐點時間資料，並從後端取得最終修正軌跡；不能只把狀態改成 final。
+
+## 本機 MID-360S 啟用紀錄
+
+在 Ubuntu 24.04、ROS 2 Jazzy、Livox SDK2 及 livox_ros_driver2 1.2.8 上啟用了一台
+Mid-360S（裝置韌體 35.01.01.08）。此紀錄只確認資料串流與 PTP 時間同步，
+尚未驗收任何擷取或校正。
+
+- **確認型號。** 探測回應回報 dev_type 35（Mid-360S），不是 9（MID-360）。
+  請使用驅動的 `MID360s_config.json` 與 `msg_MID360s_launch.py`；若使用 MID-360
+  設定，SDK 會回應探測卻不開啟資料埠，也不顯示錯誤。
+- **網路。** LiDAR 網卡設定裝置網段的固定主機位址（出廠預設主機為 192.168.1.50；
+  裝置為 192.168.1.1XX，XX 為序號末兩碼），且不設預設路由。將此位址填入所有
+  `host_ip` 欄位、裝置位址填入 `lidar_configs`，再重新編譯以更新安裝目錄中的副本。
+- **編譯環境。** 編譯或執行 ROS 前先停用 conda，讓 CMake 與 ros2 使用系統 Python。
+  CMake 4.x 需以 `-DCMAKE_POLICY_VERSION_MINIMUM=3.5` 設定 Livox SDK2，再執行
+  `sudo make install && sudo ldconfig`。
+- **時間同步。** 未同步時封包 `time_type` 為 0，裝置時鐘從開機起算，驅動會改用
+  主機收包時間取代裝置時間戳。linuxptp 4.0 預設送出 PTP v2.1，裝置會忽略
+  （HMS 警告 0x0403）。只執行一個主時鐘：
+
+  ```sh
+  sudo ptp4l -i <lidar-nic> -S -m --ptp_minor_version 0
+  ```
+
+  不要同時執行 gPTP 主時鐘（HMS 0x040A）。以裝置內部狀態（`time_sync_type`、
+  `last_sync_time`）及封包 `time_type` 確認同步。此網卡僅提供軟體時間戳。
+- **靜止時觀察。** 點雲 10.000 Hz，每則約 20,000 點，逐點偏移涵蓋 0–100 ms；
+  IMU 200 Hz，加速度單位為 g（大小約 0.99）；約一半的點為 (0, 0, 0) 無回波項目。
+  同步後 IMU 時間戳間隔在約 4.26 與 5.78 ms 間交替，並非固定 5 ms；
+  此規律仍需較長錄製確認。
+- **第一段錄製。** 59.3 秒靜止 bag（230 MiB）沒有幀或 IMU 空缺：592 幀、
+  每秒 199,996 點、IMU 199.999 Hz。IMU 收包延遲為 0.72／0.99／1.25 ms
+  （p1／p50／p99），每 5 秒最小值的趨勢為 −0.86 ppm，符合 PTP 全程鎖定。
+  52.1% 的點為無回波項目。匯入方式：
+
+  ```sh
+  conda deactivate
+  source /opt/ros/jazzy/setup.bash && source ~/ws_livox/install/setup.bash
+  PYTHONPATH=<splatrig>/src python3 -m splatrig import-livox <bag> --output <recording>
+  ```
 
 ## MAX2 整合前的驗證
 

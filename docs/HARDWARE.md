@@ -10,7 +10,7 @@ Physical-device capture has not been validated in this repository yet.
 | Part | Responsibility | Current status |
 | --- | --- | --- |
 | MID-360 + built-in IMU | Timed points and inertial measurements | External driver |
-| Livox Driver 2 | Sensor transport; preserve per-point time | Integration pending |
+| Livox Driver 2 | Sensor transport; preserve per-point time | Mid-360S running with PTP; bag importer implemented |
 | GLIM | Live cloud, rig trajectory and global optimization | External dependency |
 | ROS odometry recorder | Save configured Odometry topic | Implemented; message conversion tested, live ROS untested |
 | Panorama view converter | Equirectangular → fixed PINHOLE views via ffmpeg | Implemented; synthetic panoramas only, no MAX2 media yet |
@@ -62,6 +62,51 @@ stops on repeated/backwards time. It does not perform a hidden TF conversion.
 This log is live odometry, not final loop-corrected history. A complete adapter
 still needs original timed point logging and extraction of the final corrected
 trajectory. Relabeling the log as final is insufficient.
+
+## Local MID-360S bring-up record
+
+One Mid-360S was brought up on Ubuntu 24.04 with ROS 2 Jazzy, Livox SDK2 and
+livox_ros_driver2 1.2.8 (device firmware 35.01.01.08). This established data flow
+and PTP time synchronization only; no capture or calibration has been accepted yet.
+
+- **Identify the model.** The discovery reply reported dev_type 35 (Mid-360S), not
+  9 (MID-360). Use the driver's `MID360s_config.json` and `msg_MID360s_launch.py`;
+  with the MID-360 configuration the SDK answers discovery but never opens data
+  ports and prints no error.
+- **Network.** Give the LiDAR NIC a static host address on the device subnet
+  (factory default host 192.168.1.50; device 192.168.1.1XX from the last two serial
+  digits) with no default route. Put that address in every `host_ip` field and the
+  device address in `lidar_configs`, then rebuild so the installed copy updates.
+- **Build environment.** Deactivate conda before building or running ROS so CMake
+  and ros2 use the system Python. With CMake 4.x, configure Livox SDK2 with
+  `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`, then `sudo make install && sudo ldconfig`.
+- **Time synchronization.** Without sync the packet `time_type` is 0, the device
+  clock counts from power-on, and the driver replaces device stamps with host
+  packet-arrival time. linuxptp 4.0 sends PTP v2.1 by default, which the device
+  ignores (HMS warning 0x0403). Run exactly one master:
+
+  ```sh
+  sudo ptp4l -i <lidar-nic> -S -m --ptp_minor_version 0
+  ```
+
+  Do not also run a gPTP master (HMS 0x040A). The device's internal state
+  (`time_sync_type`, `last_sync_time`) and the packet `time_type` confirm sync.
+  This NIC offered software timestamps only.
+- **Observed while stationary.** Points 10.000 Hz with about 20,000 points per
+  message and per-point offsets spanning 0–100 ms; IMU 200 Hz with acceleration
+  in g (magnitude about 0.99); about half of returned points were (0, 0, 0)
+  no-return entries. After sync, IMU stamps alternated near 4.26 and 5.78 ms
+  rather than a uniform 5 ms; this pattern still needs a longer recording.
+- **First recording.** A 59.3 s stationary bag (230 MiB) had no frame or IMU gaps:
+  592 frames, 199,996 points/s, IMU 199.999 Hz. IMU receive latency was
+  0.72/0.99/1.25 ms (p1/p50/p99) with a −0.86 ppm trend in 5 s minima, consistent
+  with sustained PTP lock. 52.1% of points were no-return entries. Import it with:
+
+  ```sh
+  conda deactivate
+  source /opt/ros/jazzy/setup.bash && source ~/ws_livox/install/setup.bash
+  PYTHONPATH=<splatrig>/src python3 -m splatrig import-livox <bag> --output <recording>
+  ```
 
 ## MAX2 gate before capture integration
 

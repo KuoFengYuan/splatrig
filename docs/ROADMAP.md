@@ -18,6 +18,7 @@ convention check; this is tested on synthetic panoramas, not MAX2 media.
 ## M1 — real sensor acquisition
 
 - Record original MID-360 points/IMU with timestamp types and per-point offsets.
+  A Mid-360S bag importer with inferred PTP status exists; one stationary bag passed.
 - Run GLIM alongside capture; preserve local odometry and final corrected history.
 - Control MAX2 recording and collect preview frames, original chapters and metadata.
 - Identify preview projection and original-media decoding on the intended OS.
