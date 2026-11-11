@@ -18,6 +18,14 @@ FIELDS = (("x", 0), ("y", 4), ("z", 8), ("intensity", 12))
 DDS_PROFILE = Path(__file__).parent / "assets/fastdds.xml"
 
 
+def ros_import_error(error: ImportError) -> str:
+    """Explain a failed ROS import, naming the module and the interpreter in use."""
+    import sys
+    return (f"Cannot import ROS 2 with {sys.executable} (Python {sys.version_info.major}."
+            f"{sys.version_info.minor}): {error}. Run through tools/splatrig-ros, which "
+            "starts a clean ROS 2 environment with the system Python.")
+
+
 def use_dds_profile():
     """Use SplatRig's Fast DDS buffers unless the user configured a profile."""
     if not (os.environ.get("FASTRTPS_DEFAULT_PROFILES_FILE") or
@@ -47,8 +55,7 @@ def run(input_topic: str, output_topic: str):
         from sensor_msgs.msg import PointCloud2, PointField
         from livox_ros_driver2.msg import CustomMsg
     except ImportError as error:
-        raise ValueError("ROS 2 and livox_ros_driver2 Python packages are unavailable. "
-                         "Source both environments and use the system Python.") from error
+        raise ValueError(ros_import_error(error)) from error
     fields = [PointField(name=name, offset=offset, datatype=PointField.FLOAT32, count=1)
               for name, offset in FIELDS]
     rclpy.init()

@@ -21,7 +21,7 @@ import time
 
 from .gopro import GoPro, PreviewDecoder
 from .livox import assess_clock
-from .rosview import POINT, pack_points, use_dds_profile
+from .rosview import POINT, pack_points, ros_import_error, use_dds_profile
 
 WINDOW_FRAMES = 10
 CLOCK_FRAMES = 40
@@ -284,15 +284,20 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder):
         def send_json(self, code, value):
             self.send(code, json.dumps(value, allow_nan=False).encode())
 
+        def route(self) -> str:
+            # Clients append cache-busting queries (e.g. /api/preview.mjpg?123).
+            return self.path.split("?", 1)[0]
+
         def do_GET(self):
-            if self.path == "/":
+            path = self.route()
+            if path == "/":
                 self.send(200, page, "text/html; charset=utf-8")
-            elif self.path == "/api/status":
+            elif path == "/api/status":
                 self.send_json(200, {"time_ns": time.time_ns(), "lidar": lidar.status(),
                                      "camera": camera.status(), "record": recorder.status()})
-            elif self.path == "/api/points":
+            elif path == "/api/points":
                 self.send(200, lidar.cloud(), "application/octet-stream")
-            elif self.path == "/api/preview.mjpg":
+            elif path == "/api/preview.mjpg":
                 self.stream_preview()
             else:
                 self.send_json(404, {"error": "not found"})
@@ -306,11 +311,12 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder):
                        "/api/preview/stop": camera.stop_preview,
                        "/api/record/start": recorder.start,
                        "/api/record/stop": recorder.stop}
-            action = actions.get(self.path)
+            path = self.route()
+            action = actions.get(path)
             if action is None:
                 self.send_json(404, {"error": "not found"})
                 return
-            if self.path.startswith("/api/preview") and not camera.gopro:
+            if path.startswith("/api/preview") and not camera.gopro:
                 self.send_json(409, {"error": "No GoPro configured"})
                 return
             try:
@@ -352,8 +358,7 @@ def start_ros(lidar: LidarState, lidar_topic: str, imu_topic: str):
         from sensor_msgs.msg import Imu
         from livox_ros_driver2.msg import CustomMsg
     except ImportError as error:
-        raise ValueError("ROS 2 and livox_ros_driver2 Python packages are unavailable. "
-                         "Source both environments and use the system Python.") from error
+        raise ValueError(ros_import_error(error)) from error
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     node = Node("splatrig_live")
     node.create_subscription(CustomMsg, lidar_topic, lidar.add_frame, qos_profile_sensor_data)

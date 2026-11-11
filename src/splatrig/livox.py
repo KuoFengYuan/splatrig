@@ -21,6 +21,7 @@ import statistics
 
 from .export import new_output
 from .pointlog import PointLogWriter
+from .rosview import ros_import_error
 from .session import write_json
 
 LIDAR_TYPE = "livox_ros_driver2/msg/CustomMsg"
@@ -215,8 +216,7 @@ def read_bag(path: Path, topics: dict[str, str]):
         from rclpy.serialization import deserialize_message
         from rosidl_runtime_py.utilities import get_message
     except ImportError as error:
-        raise ValueError("ROS 2 Python packages are unavailable. Source ROS 2 and the "
-                         "livox_ros_driver2 workspace, then use the system Python.") from error
+        raise ValueError(ros_import_error(error)) from error
     reader = rosbag2_py.SequentialReader()
     reader.open(rosbag2_py.StorageOptions(uri=str(path), storage_id=""),
                 rosbag2_py.ConverterOptions("cdr", "cdr"))

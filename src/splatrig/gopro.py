@@ -8,6 +8,7 @@ not exposure timestamps, and the preview stream's PTS is not wall-clock time.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import re
 import subprocess
 import threading
@@ -56,6 +57,19 @@ class GoPro:
         except (urllib.error.URLError, OSError) as error:
             raise ValueError(f"GoPro unreachable: {error}") from error
         return json.loads(body) if body.strip() else {}
+
+    def download(self, name: str, destination: Path):
+        """Copy DCIM/<name> (e.g. 100GOPRO/GS010031.360) to a new local file."""
+        if not re.fullmatch(r"\d{3}GOPRO/[A-Z0-9]+\.[0-9A-Za-z]+", name):
+            raise ValueError(f"Unexpected media name: {name}")
+        try:
+            with urllib.request.urlopen(f"{self.base}/videos/DCIM/{name}",
+                                        timeout=self.timeout) as response, \
+                    destination.open("xb") as stream:
+                while chunk := response.read(1 << 20):
+                    stream.write(chunk)
+        except (urllib.error.URLError, OSError) as error:
+            raise ValueError(f"GoPro download failed: {error}") from error
 
     def info(self) -> dict:
         data = self.get("/gopro/camera/info")

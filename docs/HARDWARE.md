@@ -105,7 +105,7 @@ and PTP time synchronization only; no capture or calibration has been accepted y
   ```sh
   conda deactivate
   source /opt/ros/jazzy/setup.bash && source ~/ws_livox/install/setup.bash
-  PYTHONPATH=<splatrig>/src python3 -m splatrig import-livox <bag> --output <recording>
+  tools/splatrig-ros import-livox <bag> --output <recording>
   ```
 
 ## MAX2 gate before capture integration
@@ -162,6 +162,11 @@ AnyReplica's pose experiments are useful precedents for this distinction.
 
 ## Live capture console
 
+Commands that need ROS 2 run through `tools/splatrig-ros`, which starts a clean
+environment (no conda), sources ROS 2 and `~/ws_livox` (override with `LIVOX_WS`)
+and appends the repository to the ROS `PYTHONPATH`. Setting `PYTHONPATH=…/src`
+directly after sourcing ROS replaces the ROS entries and hides `rclpy`.
+
 `splatrig live` serves a local page at http://127.0.0.1:8090/ (localhost only). It
 shows the last second of LiDAR points in the sensor frame, the MAX2 preview, rate
 and clock status, and a Record button that starts a `ros2 bag record` of the raw
@@ -170,7 +175,7 @@ with the system Python after sourcing ROS 2 and the driver workspace, with ptp4l
 and the driver already running:
 
 ```sh
-PYTHONPATH=<splatrig>/src python3 -m splatrig live            # --gopro none for LiDAR only
+tools/splatrig-ros live            # --gopro none for LiDAR only
 ```
 
 - The page is a monitoring aid. Preview frames are labeled not exposure-timed, and
@@ -217,6 +222,33 @@ topics, and a running driver injected current IMU messages into an offline run.
 On the 59 s stationary bag, GLIM processed the data in 4.4 s and the IMU pose
 stayed within 7.9 mm and 0.31° of its first pose. Stationary drift does not
 establish accuracy while moving.
+
+## Version-1 processing
+
+`tools/splatrig-ros process-capture <capture> --output <run> --camera-offset X Y Z
+--camera-ypr YAW PITCH ROLL` turns a folder recorded by `live` into a COLMAP dataset:
+LiDAR import, GLIM bag and configuration, an offline GLIM run on ROS domain 73,
+trajectory import, download of the new MAX2 `.360` file, panorama extraction, session
+assembly, cube views and export. Work happens in a hidden directory that is renamed
+only after success (`.<run>-failed` is kept for inspection otherwise).
+
+The result is provisional by construction: the MAX2 mount is hand-entered (camera
+center in LiDAR meters; yaw toward LiDAR +Y, pitch up, roll about the camera's
+forward axis, from a front looking along LiDAR +X with image-up along +Z), so the
+rig stays `uncalibrated`; the camera clock is the record-command acknowledgement
+plus media time, so it stays `provisional`. Points and panoramas outside the GLIM
+trajectory are excluded and counted in `assembly.json`.
+
+`splatrig max2-frames <file.360>` rebuilds the equi-angular cubemap from the two
+5888×1920 MAX2 tracks (LEFT/FRONT/RIGHT and DOWN/BACK/TOP; the 64 px lens overlap
+at each split face midline is cut) and converts every Nth original frame to an
+equirectangular image. Timestamps come from packet PTS as integer media-time ns.
+The hard cut leaves visible stitching parallax for near objects.
+
+First run (stationary desk, 21 s): no LiDAR gaps, 179 GLIM poses, 39 panoramas of
+which 33 fell inside the trajectory, 198 cube views and a provisional COLMAP model,
+in 72 s. A yaw search correlating LiDAR reflectivity with panorama brightness was
+ambiguous (peaks 0.215 at −25° and 0.208 at −135°) and is not used.
 
 ## Primary references
 

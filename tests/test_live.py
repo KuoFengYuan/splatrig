@@ -110,6 +110,9 @@ class ServerTests(unittest.TestCase):
         code, cloud = self.request("/api/points")
         self.assertEqual(len(cloud), 4 + 16 * struct.unpack_from("<I", cloud)[0])
         self.assertEqual(self.request("/missing")[0], 404)
+        self.assertEqual(self.request("/api/status?nocache=1")[0], 200)
+        code, cloud = self.request("/api/points?t=2")
+        self.assertEqual(code, 200)
 
     def test_post_requires_header_and_camera(self):
         self.assertEqual(self.request("/api/record/start", "POST", header=False)[0], 403)

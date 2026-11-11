@@ -18,6 +18,7 @@ import struct
 from .export import new_output
 from .geometry import Pose
 from .livox import IMU_TYPE, LIDAR_TYPE, read_bag
+from .rosview import ros_import_error
 from .session import write_json, write_jsonl
 
 TIMED_POINT = struct.Struct("<fffff")
@@ -45,8 +46,7 @@ def to_glim_bag(bag: Path, destination: Path, *, lidar_topic="/livox/lidar",
         from rclpy.serialization import serialize_message
         from sensor_msgs.msg import PointCloud2, PointField
     except ImportError as error:
-        raise ValueError("ROS 2 Python packages are unavailable. Source ROS 2 and the "
-                         "livox_ros_driver2 workspace, then use the system Python.") from error
+        raise ValueError(ros_import_error(error)) from error
     if not bag.exists():
         raise ValueError(f"Bag not found: {bag}")
     fields = [PointField(name=name, offset=offset, datatype=PointField.FLOAT32, count=1)

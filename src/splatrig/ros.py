@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from .geometry import Pose, nanoseconds
+from .rosview import ros_import_error
 
 
 def odometry_record(message, world_frame: str, rig_frame: str, revision: int = 0):
@@ -32,8 +33,7 @@ def record_poses(destination: Path, topic: str, world_frame: str, rig_frame: str
         from rclpy.node import Node
         from rclpy.qos import qos_profile_sensor_data
     except ImportError as error:
-        raise ValueError("ROS 2 Python packages are unavailable. Source the ROS 2 "
-                         "environment and run with its Python interpreter.") from error
+        raise ValueError(ros_import_error(error)) from error
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("x", encoding="utf-8") as stream:
         last_timestamp = None

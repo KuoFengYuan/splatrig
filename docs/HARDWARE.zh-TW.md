@@ -92,7 +92,7 @@ Mid-360S（裝置韌體 35.01.01.08）。此紀錄只確認資料串流與 PTP �
   ```sh
   conda deactivate
   source /opt/ros/jazzy/setup.bash && source ~/ws_livox/install/setup.bash
-  PYTHONPATH=<splatrig>/src python3 -m splatrig import-livox <bag> --output <recording>
+  tools/splatrig-ros import-livox <bag> --output <recording>
   ```
 
 ## MAX2 整合前的驗證
@@ -139,6 +139,11 @@ Open GoPro 支援 MAX2，FAQ 指出原始 metadata 需等檔案儲存後才能�
 
 ## 即時擷取介面
 
+需要 ROS 2 的指令請透過 `tools/splatrig-ros` 執行：它會建立乾淨的環境（不含 conda），
+source ROS 2 與 `~/ws_livox`（可用 `LIVOX_WS` 覆寫），並把專案加到 ROS 的
+`PYTHONPATH` 後面。若在 source ROS 之後直接設定 `PYTHONPATH=…/src`，
+會覆蓋 ROS 的路徑而找不到 `rclpy`。
+
 `splatrig live` 在 http://127.0.0.1:8090/ 提供本機頁面（只綁定 localhost）。頁面顯示
 感測器座標中最近一秒的 LiDAR 點、MAX2 預覽、頻率與時鐘狀態，以及錄製按鈕：
 在 `~/captures` 下建立新資料夾，同時以 `ros2 bag record` 錄製原始 Livox topic
@@ -146,7 +151,7 @@ Open GoPro 支援 MAX2，FAQ 指出原始 metadata 需等檔案儲存後才能�
 以系統 Python 執行：
 
 ```sh
-PYTHONPATH=<splatrig>/src python3 -m splatrig live            # 只用 LiDAR 時加 --gopro none
+tools/splatrig-ros live            # 只用 LiDAR 時加 --gopro none
 ```
 
 - 頁面僅供監看。預覽幀標示為非曝光時間，`capture-log.json` 只記錄主機指令時間；
@@ -188,6 +193,29 @@ splatrig import-trajectory runs/glim-dump/traj_imu.txt --revision 1 --status fin
 請使用未被佔用的 `ROS_DOMAIN_ID`：`glim_rosbag` 也會訂閱即時 topic，
 執行中的驅動曾把當下的 IMU 訊息混入離線處理。59 秒靜止 bag 以 4.4 秒處理完成，
 IMU 位姿與第一筆位姿的差距在 7.9 mm 與 0.31° 以內。靜止漂移不代表移動時的精度。
+
+## 第一版處理流程
+
+`tools/splatrig-ros process-capture <capture> --output <run> --camera-offset X Y Z
+--camera-ypr YAW PITCH ROLL` 將 `live` 錄製的資料夾轉成 COLMAP 資料集：LiDAR 匯入、
+GLIM bag 與設定、在 ROS domain 73 離線執行 GLIM、匯入軌跡、下載新的 MAX2 `.360` 檔、
+擷取全景、組成掃描、切成 cube 視角並匯出。處理在隱藏目錄中進行，成功後才改名發布；
+失敗時保留 `.<run>-failed` 供檢查。
+
+結果在設計上就是暫定的：MAX2 安裝位置由人工輸入（相機中心在 LiDAR 座標中的公尺數；
+以「前方沿 LiDAR +X、影像上方沿 +Z」為基準，yaw 轉向 LiDAR +Y、pitch 向上、
+roll 繞相機前方軸），因此 rig 維持 `uncalibrated`；相機時鐘為錄影指令確認時間加上
+影片時間，因此維持 `provisional`。GLIM 軌跡範圍外的點與全景會被排除，數量記在
+`assembly.json`。
+
+`splatrig max2-frames <file.360>` 由兩條 5888×1920 的 MAX2 影像軌（LEFT／FRONT／RIGHT
+與 DOWN／BACK／TOP；切掉分割面中線處 64 px 的鏡頭重疊區）重建等角立方體，
+並把每 N 個原始幀轉成 equirectangular 影像。時間戳取自封包 PTS，為整數奈秒的影片時間。
+直接切割會在近物處留下明顯的拼接視差。
+
+首次執行（桌上靜止、21 秒）：LiDAR 無空缺、GLIM 179 筆位姿、39 張全景中 33 張落在
+軌跡內、198 張 cube 視角與暫定 COLMAP 模型，耗時 72 秒。以 LiDAR 反射率與全景亮度
+相關性搜尋 yaw 的結果不明確（−25° 為 0.215、−135° 為 0.208），未採用。
 
 ## 官方與原始來源
 

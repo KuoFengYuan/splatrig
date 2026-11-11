@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Run a splatrig command with the system Python in a clean ROS 2 environment.
+# Conda and other shell state are dropped; LIVOX_WS overrides ~/ws_livox.
+# Positional parameters are cleared before sourcing: ROS setup scripts read them.
+set -euo pipefail
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec env -i HOME="$HOME" USER="${USER:-}" LANG="${LANG:-C.UTF-8}" TERM="${TERM:-dumb}" \
+  PATH=/usr/bin:/bin ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}" \
+  SPLATRIG_REPO="$repo" LIVOX_WS="${LIVOX_WS:-$HOME/ws_livox}" \
+  bash -c 'args=("$@"); set --
+           source /opt/ros/jazzy/setup.bash && source "$LIVOX_WS/install/setup.bash"
+           PYTHONPATH="$SPLATRIG_REPO/src:$PYTHONPATH" exec /usr/bin/python3 -m splatrig "${args[@]}"' \
+  splatrig-ros "$@"

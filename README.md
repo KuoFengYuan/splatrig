@@ -101,6 +101,7 @@ splatrig panorama-views runs/panorama --output runs/views  # requires ffmpeg
 splatrig import-livox <bag> --output runs/lidar            # requires ROS 2 + Livox driver
 splatrig live                                              # local console, http://127.0.0.1:8090/
 splatrig glim-bag <bag> --output runs/glim                 # PointCloud2 copy for GLIM
+tools/splatrig-ros process-capture <capture> --output <run> --camera-offset 0 0 0 --camera-ypr 0 0 0
 splatrig record-poses --help
 python -m unittest discover -s tests -v
 python tools/smoke.py

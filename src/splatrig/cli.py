@@ -15,6 +15,7 @@ from .demo import create_demo, create_panorama_demo
 from .export import export_colmap, replay
 from .glim import import_trajectory, to_glim_bag, write_glim_config
 from .livox import import_livox
+from .max2 import extract as extract_max2
 from .rosview import run as view_pointcloud
 from .panorama import INTERPOLATIONS, PRESETS, panorama_views
 from .ros import record_poses
@@ -88,6 +89,28 @@ def parser():
         "glim-config", help="Write a GLIM configuration for a Livox Mid-360(S)")
     glim_config.add_argument("--output", type=Path, required=True)
     glim_config.add_argument("--gpu", action="store_true", help="Use GLIM's GPU modules")
+    max2 = commands.add_parser(
+        "max2-frames", help="Decode GoPro MAX2 .360 frames to equirectangular panoramas")
+    max2.add_argument("video", type=Path)
+    max2.add_argument("--output", type=Path, required=True)
+    max2.add_argument("--every", type=int, default=15, help="Keep every Nth original frame")
+    max2.add_argument("--width", type=int, default=3840)
+    max2.add_argument("--format", choices=["jpg", "png"], default="jpg")
+    process = commands.add_parser(
+        "process-capture", help="Capture folder from `live` -> provisional COLMAP dataset (ROS 2, GLIM)")
+    process.add_argument("capture", type=Path)
+    process.add_argument("--output", type=Path, required=True)
+    process.add_argument("--camera-offset", type=float, nargs=3, required=True,
+                         metavar=("X", "Y", "Z"), help="MAX2 center in the LiDAR frame, meters")
+    process.add_argument("--camera-ypr", type=float, nargs=3, required=True,
+                         metavar=("YAW", "PITCH", "ROLL"),
+                         help="MAX2 front relative to LiDAR +X, degrees")
+    process.add_argument("--video", type=Path, help="Local .360 file instead of downloading")
+    process.add_argument("--gopro", default="auto", help="Camera IP, 'auto' or 'none'")
+    process.add_argument("--every", type=int, default=15)
+    process.add_argument("--width", type=int, default=3840)
+    process.add_argument("--size", type=int, default=1024)
+    process.add_argument("--layout", choices=sorted(PRESETS), default="cube")
     trajectory = commands.add_parser(
         "import-trajectory", help="Convert a TUM trajectory (e.g. GLIM traj_imu.txt)")
     trajectory.add_argument("tum", type=Path)
@@ -138,6 +161,19 @@ def main(argv=None):
                                  imu_topic=args.imu_topic, points_topic=args.points_topic)
         elif args.command == "glim-config":
             report = write_glim_config(args.output, gpu=args.gpu)
+        elif args.command == "process-capture":
+            from .gopro import detect_camera
+            from .pipeline import process_capture
+            host = detect_camera() if args.gopro == "auto" else (
+                None if args.gopro == "none" else args.gopro)
+            report = process_capture(args.capture, args.output,
+                                     camera_offset=tuple(args.camera_offset),
+                                     camera_ypr=tuple(args.camera_ypr), video=args.video,
+                                     gopro_host=host, every=args.every, width=args.width,
+                                     view_size=args.size, layout=args.layout)
+        elif args.command == "max2-frames":
+            report = extract_max2(args.video, args.output, every=args.every, width=args.width,
+                                  image_format=args.format)
         elif args.command == "import-trajectory":
             report = import_trajectory(args.tum, args.output, revision=args.revision,
                                        status=args.status, frame=args.frame)
