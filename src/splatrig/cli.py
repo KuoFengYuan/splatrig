@@ -100,17 +100,24 @@ def parser():
         "process-capture", help="Capture folder from `live` -> provisional COLMAP dataset (ROS 2, GLIM)")
     process.add_argument("capture", type=Path)
     process.add_argument("--output", type=Path, required=True)
-    process.add_argument("--camera-offset", type=float, nargs=3, required=True,
+    process.add_argument("--camera-offset", type=float, nargs=3, default=(0.0, 0.0, 0.0),
                          metavar=("X", "Y", "Z"), help="MAX2 center in the LiDAR frame, meters")
-    process.add_argument("--camera-ypr", type=float, nargs=3, required=True,
-                         metavar=("YAW", "PITCH", "ROLL"),
-                         help="MAX2 front relative to LiDAR +X, degrees")
+    rotation = process.add_mutually_exclusive_group(required=True)
+    rotation.add_argument("--camera-ypr", type=float, nargs=3, metavar=("YAW", "PITCH", "ROLL"),
+                          help="Hand-entered MAX2 front relative to LiDAR +X, degrees")
+    rotation.add_argument("--calibration", type=Path, help="calibration.json from calibrate-gyro")
     process.add_argument("--video", type=Path, help="Local .360 file instead of downloading")
     process.add_argument("--gopro", default="auto", help="Camera IP, 'auto' or 'none'")
     process.add_argument("--every", type=int, default=15)
     process.add_argument("--width", type=int, default=3840)
     process.add_argument("--size", type=int, default=1024)
     process.add_argument("--layout", choices=sorted(PRESETS), default="cube")
+    gyro = commands.add_parser(
+        "calibrate-gyro", help="MAX2-to-LiDAR rotation and clock offset from a rotation capture")
+    gyro.add_argument("capture", type=Path)
+    gyro.add_argument("--output", type=Path, required=True, help="New calibration directory")
+    gyro.add_argument("--video", type=Path, help="Local .360 file instead of downloading")
+    gyro.add_argument("--gopro", default="auto", help="Camera IP, 'auto' or 'none'")
     trajectory = commands.add_parser(
         "import-trajectory", help="Convert a TUM trajectory (e.g. GLIM traj_imu.txt)")
     trajectory.add_argument("tum", type=Path)
@@ -168,9 +175,17 @@ def main(argv=None):
                 None if args.gopro == "none" else args.gopro)
             report = process_capture(args.capture, args.output,
                                      camera_offset=tuple(args.camera_offset),
-                                     camera_ypr=tuple(args.camera_ypr), video=args.video,
+                                     camera_ypr=tuple(args.camera_ypr) if args.camera_ypr else None,
+                                     calibration=args.calibration, video=args.video,
                                      gopro_host=host, every=args.every, width=args.width,
                                      view_size=args.size, layout=args.layout)
+        elif args.command == "calibrate-gyro":
+            from .gopro import detect_camera
+            from .pipeline import calibrate_capture
+            host = detect_camera() if args.gopro == "auto" else (
+                None if args.gopro == "none" else args.gopro)
+            report = calibrate_capture(args.capture, args.output, video=args.video,
+                                       gopro_host=host)
         elif args.command == "max2-frames":
             report = extract_max2(args.video, args.output, every=args.every, width=args.width,
                                   image_format=args.format)

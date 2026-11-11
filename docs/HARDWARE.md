@@ -250,6 +250,35 @@ which 33 fell inside the trajectory, 198 cube views and a provisional COLMAP mod
 in 72 s. A yaw search correlating LiDAR reflectivity with panorama brightness was
 ambiguous (peaks 0.215 at −25° and 0.208 at −135°) and is not used.
 
+## Gyro calibration of the MAX2 mount
+
+With the MAX2 and LiDAR rigidly fixed together, record ~30 s that starts and ends
+still and rotates the rig about all three axes, then run
+`tools/splatrig-ros calibrate-gyro <capture> --output <dir>`. The MAX2 GPMF gyro
+(GYRO, ~790 Hz, ORIN `ZXY`) and the Mid-360S IMU (200 Hz) measure one rotation:
+the clock offset maximizes the correlation of |ω| and is refined with the rotated
+vector residual; the rotation is the orthogonal polar factor of Σ l cᵀ, with
+reflections rejected and the weakest singular value reported. Each gyro is
+averaged over a ±4 ms window; plain linear interpolation biased the offset by up
+to 1.6 ms toward sample phases with less interpolated noise.
+
+The image axes of the MAX2 relative to its GPMF axes were established once by
+projecting LiDAR depth edges into a still panorama for the four horizontal
+candidates: forward = −Y, down = −Z, right = −X (stored order Z, X, Y). IORI was
+identity throughout, so the stored image orientation is fixed to the camera.
+
+`process-capture --calibration calibration.json` uses that rotation and re-runs
+the |ω| correlation on every capture for its own clock offset, falling back to
+the record-command time (and saying so) when the correlation is below 0.9.
+Translation is still hand-entered (`--camera-offset`), so output stays provisional.
+
+Measured on the first mount: |ω| correlation 0.9996, residual 2.2% of the signal
+RMS, camera media time 95.8 ms after the record-command acknowledgement; the
+weakest axis was barely excited (singular value ratio 0.013). On synthetic data
+the method recovers the offset within 0.2 ms and the rotation within 0.04°.
+Reprojected LiDAR depth edges stayed on static structures across the rotation by
+visual inspection; this is not a quantified accuracy.
+
 ## Primary references
 
 - [Livox MID-360 specifications](https://www.livoxtech.com/mid-360)
