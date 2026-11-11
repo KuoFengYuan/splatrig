@@ -30,7 +30,7 @@ a COLMAP initialization dataset. It did not estimate the trajectory using SLAM.
 | Live console browser check | Headless Chrome 1280×900 and 390×844: layout, status and no console errors. Points rendered only with virtual time; the MJPEG preview did not render headless although the server stream was verified. Not yet checked in an interactive browser |
 | GLIM bag | Static bag → 592 PointCloud2 frames, 5,672,997 points, 11,854 IMU messages; GLIM CPU 1.2.2 ran it in 4.4 s; stationary drift ≤ 7.9 mm and 0.31° over 56 s |
 | End-to-end version 1 | 21 s desk capture → GLIM → MAX2 decode → 198 views → provisional COLMAP model in 72 s; camera mount not yet measured |
-| Live console in a real browser | The MAX2 preview showed a broken image because cache-busting query strings were not routed; fixed and covered by a test, not yet rechecked in the browser |
+| Live console in a real browser | The MAX2 preview first showed a broken image because cache-busting query strings were not routed; after the fix the user confirmed the live cloud and preview in an interactive desktop browser (narrow width checked headless only) |
 | Mid-360S import fidelity | All 5,672,997 returned points matched the bag in time, float32 xyz, reflectivity, tag and line |
 | Observation tracks | Zero, intentionally: this is an initialization model |
 | Browser | Desktop 1280×900 and narrow 390×844 viewport checked |
