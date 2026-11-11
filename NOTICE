@@ -1,0 +1,12 @@
+SplatRig
+Copyright (c) 2026 KuoFengYuan
+
+SplatRig is an independent implementation licensed under MIT.
+Its capture/review/export workflow follows ideas developed in the owner's
+AnyReplica project. No AnyReplica implementation source is included here.
+
+COLMAP file layouts follow the format documented by the COLMAP project:
+https://colmap.github.io/format.html
+
+Optional tools such as GLIM, Livox SDK/ROS drivers, GoPro software and 3DGS
+trainers are distributed separately under their respective licenses.

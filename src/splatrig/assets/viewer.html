@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SplatRig · capture replay</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#101720;color:#e6edf3}
+*{box-sizing:border-box}body{margin:0}header{padding:20px 24px;border-bottom:1px solid #2d3946;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+h1{margin:0;font-size:22px;letter-spacing:-.6px}header span{color:#a9bacb;font-size:14px}
+.tag{border:1px solid #456065;border-radius:20px;padding:5px 10px;color:#7ee3c6;font-size:12px}
+main{display:grid;grid-template-columns:1fr 285px;min-height:calc(100vh - 75px)}
+.scene{position:relative;min-height:500px}canvas{display:block;width:100%;height:calc(100vh - 75px);min-height:500px;touch-action:none;outline-offset:-4px}
+aside{padding:24px;border-left:1px solid #2d3946;background:#151f2a;font-size:14px;line-height:1.6}
+h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#a9bacb;margin:0 0 14px}
+dl{margin:0 0 24px}dt{color:#94a7b9}dd{margin:0 0 12px;font-variant-numeric:tabular-nums}
+button{border:1px solid #526477;border-radius:8px;background:#233343;color:#e6edf3;padding:9px 13px;cursor:pointer}
+button:hover{background:#31485d}button:focus-visible,input:focus-visible,canvas:focus-visible{outline:2px solid #7ee3c6}
+label{display:block;margin:18px 0}input{accent-color:#7ee3c6}p{color:#a9bacb}#status{color:#f4c880}
+.hint{position:absolute;bottom:16px;left:20px;color:#a9bacb;font-size:12px;pointer-events:none}
+@media(max-width:700px){main{grid-template-columns:1fr}canvas{height:55vh;min-height:340px}.scene{min-height:340px}aside{border-left:0;border-top:1px solid #2d3946}header{padding:16px}}
+</style>
+<header><h1>SplatRig</h1><span id="subtitle">Capture replay · point cloud + camera poses</span><strong class="tag" id="source"></strong></header>
+<main><div class="scene"><canvas tabindex="0" aria-label="3D point cloud. Drag to orbit, scroll to zoom, arrow keys to rotate, plus or minus to zoom."></canvas>
+<div class="hint">Drag to orbit · scroll to zoom · arrow keys / + / −</div></div>
+<aside><h2>Dataset</h2><dl id="metrics"></dl><p id="status"></p>
+<button id="reset" type="button">Reset view</button><label><input id="cameras" type="checkbox" checked> Show cameras and route</label>
+<p>This is a geometric point-cloud replay. A Gaussian model requires a separate training step.</p>
+<p>All preview data is embedded in this file. No network connection or upload is used.</p></aside></main>
+<script type="application/json" id="capture">__SPLATRIG_DATA__</script>
+<script>
+"use strict";
+const data=JSON.parse(document.getElementById("capture").textContent),canvas=document.querySelector("canvas"),ctx=canvas.getContext("2d");
+const report=data.report;
+document.getElementById("source").textContent=report.synthetic?"SYNTHETIC FIXTURE":"CAPTURE REPLAY";
+if(report.synthetic)document.getElementById("subtitle").textContent="Synthetic replay · no sensor capture";
+document.getElementById("status").textContent=report.synthetic?"Generated test room and known camera poses. No device capture, SLAM estimation or 3DGS training was run.":report.provisional?"Provisional poses / calibration · diagnostic output.":"Final pose revision · hardware validation remains a separate check.";
+for(const [label,value] of [["Frames",report.frames],["Cameras",report.cameras],["Raw points",report.raw_points],["Voxel points",report.voxel_points],["Pose revision",report.pose_revision],["Units","meters · +Z up"]]){
+ const dt=document.createElement("dt"),dd=document.createElement("dd");dt.textContent=label;dd.textContent=typeof value==="number"?value.toLocaleString():value;document.getElementById("metrics").append(dt,dd);
+}
+let center=[0,0,0],radius=1;
+if(data.points.length){
+ let lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
+ for(const p of data.points)for(let i=0;i<3;i++){lo[i]=Math.min(lo[i],p[i]);hi[i]=Math.max(hi[i],p[i]);}
+ center=lo.map((v,i)=>(v+hi[i])/2);radius=Math.max(1,Math.hypot(...hi.map((v,i)=>v-lo[i]))/2);
+}
+let yaw=-.75,pitch=.55,zoom=1,drag=null;
+function project(point){
+ const p=point.map((v,i)=>v-center[i]),a=Math.cos(yaw),b=Math.sin(yaw),c=Math.cos(pitch),d=Math.sin(pitch);
+ const x=a*p[0]-b*p[1],y=b*p[0]+a*p[1],z=c*p[2]-d*y,depth=d*p[2]+c*y;
+ const scale=Math.min(canvas.clientWidth,canvas.clientHeight)*.34*zoom/radius;
+ return [canvas.clientWidth/2+x*scale,canvas.clientHeight/2-z*scale,depth];
+}
+function rotate(q,v){
+ const [w,x,y,z]=q,[a,b,c]=v,tx=2*(y*c-z*b),ty=2*(z*a-x*c),tz=2*(x*b-y*a);
+ return [a+w*tx+y*tz-z*ty,b+w*ty+z*tx-x*tz,c+w*tz+x*ty-y*tx];
+}
+function line(a,b,color,width=1){ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(...project(a).slice(0,2));ctx.lineTo(...project(b).slice(0,2));ctx.stroke();}
+function draw(){
+ const w=canvas.clientWidth,h=canvas.clientHeight,dpr=window.devicePixelRatio||1;
+ canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);ctx.fillStyle="#101720";ctx.fillRect(0,0,w,h);
+ const points=data.points.map(p=>({p,s:project(p.slice(0,3))})).sort((a,b)=>a.s[2]-b.s[2]);
+ for(const {p,s} of points){ctx.fillStyle="rgb("+p.slice(3).join(",")+")";ctx.fillRect(s[0],s[1],2,2);}
+ if(document.getElementById("cameras").checked){
+  let previous=null;
+  for(const frame of data.frames){
+   const pose=frame.T_world_camera,p=pose.translation,q=pose.quaternion_wxyz;
+   if(previous)line(previous,p,"#7ee3c6",2);previous=p;
+   const corners=[[-.16,-.12,.23],[.16,-.12,.23],[.16,.12,.23],[-.16,.12,.23]].map(v=>rotate(q,v).map((a,i)=>a+p[i]));
+   for(let i=0;i<4;i++){line(p,corners[i],"#f5c67d");line(corners[i],corners[(i+1)%4],"#f5c67d");}
+  }
+ }
+}
+canvas.addEventListener("pointerdown",e=>{drag=[e.clientX,e.clientY];canvas.setPointerCapture(e.pointerId);canvas.focus();});
+canvas.addEventListener("pointermove",e=>{if(!drag)return;yaw+=(e.clientX-drag[0])*.008;pitch=Math.max(-1.5,Math.min(1.5,pitch+(e.clientY-drag[1])*.008));drag=[e.clientX,e.clientY];draw();});
+canvas.addEventListener("pointerup",()=>drag=null);canvas.addEventListener("pointercancel",()=>drag=null);
+canvas.addEventListener("wheel",e=>{e.preventDefault();zoom=Math.max(.2,Math.min(8,zoom*Math.exp(-e.deltaY*.001)));draw();},{passive:false});
+canvas.addEventListener("keydown",e=>{if(!["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","+","=","-"].includes(e.key))return;e.preventDefault();if(e.key==="ArrowLeft")yaw-=.1;if(e.key==="ArrowRight")yaw+=.1;if(e.key==="ArrowUp")pitch=Math.min(1.5,pitch+.1);if(e.key==="ArrowDown")pitch=Math.max(-1.5,pitch-.1);if(["+","="].includes(e.key))zoom=Math.min(8,zoom*1.1);if(e.key==="-")zoom=Math.max(.2,zoom/1.1);draw();});
+document.getElementById("reset").addEventListener("click",()=>{yaw=-.75;pitch=.55;zoom=1;draw();});
+document.getElementById("cameras").addEventListener("change",draw);
+new ResizeObserver(draw).observe(canvas);draw();
+</script></html>

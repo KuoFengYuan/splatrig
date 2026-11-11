@@ -1,0 +1,65 @@
+# Local test record
+
+**English** | [繁體中文](LOCAL_TESTS.zh-TW.md)
+
+Date: 2026-11-11. This is a local software check, with no connected MAX2 or MID-360.
+No repository or captured data was published to GitHub.
+
+## What actually ran
+
+The demo generated a virtual room, rendered eight small PINHOLE images, supplied
+a known camera/rig trajectory and synthesized timed LiDAR points. The processing
+code then associated images with that trajectory, replayed the points and wrote
+a COLMAP initialization dataset. It did not estimate the trajectory using SLAM.
+
+| Check | Result |
+| --- | --- |
+| Geometry, timing, export and ROS-message conversion | 28 unit tests passed |
+| Python runtimes | Unit tests and CLI smoke passed on Python 3.12 and 3.14 |
+| End-to-end CLI | Demo → validate → replay → export and clock fit passed |
+| Distribution | Wheel built and installed into a clean environment; CLI smoke passed without runtime dependencies |
+| Demo data | 8 images, 165 poses, 17,280 source points, 14,806 voxels at 0.05 m |
+| COLMAP native reader | Read 8 registered images and 14,806 points |
+| Observation tracks | Zero, intentionally: this is an initialization model |
+| Browser | Desktop 1280×900 and narrow 390×844 viewport checked |
+| Browser controls | Pointer/keyboard orbit, wheel zoom, cameras and reset passed |
+| Offline preview | No external HTTP(S) requests or browser script errors |
+| Documentation | Local links, language counterparts and source syntax checked |
+| Repository skill | Skill format validator passed |
+
+Native COLMAP was 4.3.0.dev0, commit 3c1a1b95. Browser checks used headless Google
+Chrome 151.0.7922.137. Synthetic reprojection checks use independent analytic
+coordinates; the native reader's zero-observation reprojection value is not an
+accuracy measurement.
+
+Python 3.10 is included in the prepared CI matrix but was not installed locally;
+that runtime and hosted CI have not been run in this local-only phase.
+
+## Not established by these checks
+
+- Physical sensor discovery, control or capture.
+- Real-time SLAM, loop closure or measured live throughput.
+- MAX2 exposure synchronization or actual rig calibration.
+- Original .360 decoding and panoramic view generation.
+- Real indoor/outdoor geometry accuracy.
+- 3DGS training, image quality or trainer-specific compatibility.
+- Physical phone interaction, sensor thermals or portable power/runtime.
+
+The ROS recorder was tested with constructed messages, not a running ROS graph.
+See the [roadmap](ROADMAP.md) for physical-device acceptance work.
+
+## Reproduce locally
+
+After installing the project:
+
+    python -m unittest discover -s tests -v
+    python tools/smoke.py
+    python tools/check_project.py
+
+Optional browser checks require the dev extra and a local Chrome/Chromium:
+
+    python -m pip install -e '.[dev]'
+    python tools/check_viewer.py runs/replay/preview.html
+
+The browser checker also accepts --browser with a compatible executable path.
+The tests create new temporary captures; the existing scans stay unchanged.

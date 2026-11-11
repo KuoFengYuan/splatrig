@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380" role="img" aria-labelledby="title desc">
+<title id="title">SplatRig</title><desc id="desc">Pose-aware capture datasets for Gaussian splatting. Local foundation.</desc>
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#132330"/><stop offset="1" stop-color="#0a111a"/></linearGradient><pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="4" cy="4" r="2" fill="#77d6c0" opacity=".3"/></pattern></defs>
+<rect width="1200" height="380" rx="24" fill="url(#bg)"/>
+<path d="M700 300V115l190-70 210 90v180l-205 45Z" fill="url(#dots)" stroke="#34566a"/>
+<path d="m700 115 195 88 205-68M895 203v157" fill="none" stroke="#34566a"/>
+<path d="M745 264q50-125 126-100t138 91" fill="none" stroke="#7ee3c6" stroke-width="4" stroke-dasharray="7 7"/>
+<g stroke="#f0bf7b" stroke-width="2" fill="#213743"><path d="m754 236 26-20 13 28-26 9Z"/><path d="m834 164 24-14 15 26-30 3Z"/><path d="m966 197 25 8-8 30-26-13Z"/></g>
+<text x="65" y="104" fill="#7ee3c6" font-family="system-ui,sans-serif" font-size="16" letter-spacing="3">CAPTURE · POSES · DATASETS</text>
+<text x="60" y="195" fill="#edf4f8" font-family="system-ui,sans-serif" font-size="80" font-weight="700" letter-spacing="-4">SplatRig</text>
+<text x="65" y="246" fill="#b3c4d3" font-family="system-ui,sans-serif" font-size="25">Walk a scene. Keep the geometry.</text>
+<text x="65" y="292" fill="#8aa6bb" font-family="system-ui,sans-serif" font-size="17">360 cameras + LiDAR → Gaussian splatting datasets</text>
+<rect x="65" y="319" width="191" height="27" rx="13" fill="#233e46"/><text x="80" y="338" fill="#9fe2d0" font-family="system-ui,sans-serif" font-size="13">LOCAL FOUNDATION · MIT</text>
+</svg>

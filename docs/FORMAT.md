@@ -1,0 +1,142 @@
+# Capture data format
+
+**English** | [繁體中文](FORMAT.zh-TW.md)
+
+Schema version 1 is the boundary between device adapters and offline processing.
+It currently accepts rectified PINHOLE views saved as PNG, not raw .360 media.
+
+## Session files
+
+```text
+capture/
+├── capture-meta.json
+├── rig.json
+├── clock.json
+├── trajectory.jsonl
+├── frames.jsonl
+├── points.jsonl
+└── images/
+```
+
+The demo command creates a complete example. Raw captures stay unchanged;
+replay and export create separate output directories and reject existing outputs.
+
+`capture-meta.json`:
+
+```json
+{
+  "schema_version": 1,
+  "source": "gopro_max2_mid360",
+  "world_up": "+Z",
+  "units": "meters",
+  "camera_convention": "opencv",
+  "point_frame": "lidar",
+  "trajectory_status": "final",
+  "pose_revision": 1,
+  "max_pose_gap_ns": 200000000
+}
+```
+
+Sources are synthetic, gopro_max2_mid360 or external. The trajectory status is live
+or final. A final trajectory must come from the actual corrected history; changing
+the status label alone does not finalize SLAM.
+
+## Coordinates and calibration
+
+`T_A_B` maps a point from B into A. World is +Z up. Camera coordinates follow
+OpenCV: +X right, +Y down, +Z forward. All translations are meters. Quaternions
+are unit-length wxyz, not ROS/SciPy's usual xyzw serialization.
+
+`rig.json` contains status (uncalibrated or calibrated), T_rig_lidar and cameras:
+
+```json
+{
+  "status": "uncalibrated",
+  "T_rig_lidar": {"translation": [0, 0, 0], "quaternion_wxyz": [1, 0, 0, 0]},
+  "cameras": [{
+    "id": 1,
+    "model": "PINHOLE",
+    "width": 1536,
+    "height": 1536,
+    "params": [768, 768, 768, 768],
+    "T_rig_camera": {"translation": [0, 0, 0], "quaternion_wxyz": [1, 0, 0, 0]}
+  }]
+}
+```
+
+These identity transforms are placeholders, not MAX2/MID-360 calibration.
+The rig frame is the frame tracked by the supplied trajectory, often the IMU.
+A virtual camera's transform includes its fixed view rotation and physical offset.
+The current schema assumes a fixed output orientation. Time-varying stabilization
+must be removed or explicitly modeled before using it.
+
+## Time
+
+All timestamps are nonnegative integer nanoseconds. Camera times and reference
+times may have very different origins. `clock.json` defines:
+
+```text
+reference_ns = reference_anchor_ns
+             + round((camera_ns - camera_anchor_ns) * rate)
+```
+
+Fields: camera_anchor_ns, reference_anchor_ns, rate and status (provisional or
+calibrated). Subtract anchors before floating point math to retain epoch precision.
+`fit-clock` estimates an affine model from at least three increasing paired
+physical events and rejects excessive residuals. Its default maximum residual is
+5 ms, a software acceptance setting, not measured MAX2 synchronization accuracy.
+Record time span and residuals; events clustered at one end do not establish drift
+over a long capture. The tool does not extract these events from GPMF yet.
+
+Preview arrival time and a shared recording command are not exposure timestamps.
+Device-specific PTS, exposure midpoint and rolling-shutter timing remain adapter
+responsibilities.
+
+## Trajectory, images and points
+
+Each trajectory line contains timestamp_ns in the reference clock, revision,
+translation and quaternion_wxyz, representing T_world_rig. Times must increase
+strictly, and every revision must equal capture-meta.json's pose_revision.
+
+Each frame line contains positive integer id and camera_id, timestamp_ns in the
+camera clock and image_path relative to the capture folder. An optional capture_id
+can group virtual views from one source exposure. Paths must remain inside the
+capture. PNG header dimensions must match the camera calibration. The header
+check is not a complete image decoder.
+
+Each point line contains timestamp_ns in the reference clock, xyz in the LiDAR
+frame and optional integer rgb in [0, 255]. Missing color defaults to gray.
+An adapter must preserve each point's acquisition time rather than assigning one
+packet-receipt time to an entire moving scan.
+
+```text
+T_world_camera(t) = T_world_rig(t) · T_rig_camera
+p_world(t)        = T_world_rig(t) · T_rig_lidar · p_lidar(t)
+```
+
+Translation is linearly interpolated and rotation uses shortest-path SLERP.
+No extrapolation is allowed. Interpolation across a gap above max_pose_gap_ns is
+rejected. Querying an exact recorded pose does not require interpolation.
+Both photos and points are recomputed from the same revision after loop correction.
+
+## Outputs and limits
+
+Replay writes a PLY, image-poses.jsonl, report.json and an embedded browser preview.
+The replay pose log uses source_image_path relative to the original capture;
+it does not copy images. Export adds copied images and COLMAP binary/text models.
+Its pose log has image_path relative to the exported dataset and source_image_path
+for provenance. Camera poses in this log are c2w; COLMAP images store w2c.
+There is no implicit world-up flip.
+
+COLMAP points have empty observation tracks, and image POINTS2D arrays are empty.
+These are valid initialization inputs, not feature correspondences for bundle
+adjustment. The report records this distinction and the provisional/synthetic state.
+See the [COLMAP format](https://colmap.github.io/format.html).
+
+Voxel replay has a configurable occupied-voxel budget; it fails explicitly when
+full. It is not a streaming, unlimited city-scale mapper. Trajectory and frame
+records are loaded into memory. The preview embeds at most 20,000 sampled points.
+
+Per-camera depth, masks, 360 projection conversion, feature tracks, image-quality
+metrics and trainer execution are future milestones. LiDAR range must be transformed
+to camera Z depth with visibility masking before any depth-supervision integration.

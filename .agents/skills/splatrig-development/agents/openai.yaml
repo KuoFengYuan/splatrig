@@ -1,0 +1,4 @@
+interface:
+  display_name: "SplatRig Development"
+  short_description: "Develop and validate SplatRig capture datasets"
+  default_prompt: "Use $splatrig-development to update SplatRig and validate the affected capture-data invariants."

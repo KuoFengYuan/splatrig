@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "splatrig"
+version = "0.1.0.dev0"
+description = "Pose-aware capture datasets for Gaussian splatting with 360 cameras and LiDAR."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{name = "KuoFengYuan"}]
+keywords = ["gaussian-splatting", "lidar", "gopro", "livox", "colmap", "3d-reconstruction"]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["PyYAML>=6", "playwright>=1.50"]
+
+[project.scripts]
+splatrig = "splatrig.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+splatrig = ["assets/*.html"]
