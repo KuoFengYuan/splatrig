@@ -5,7 +5,7 @@ from types import SimpleNamespace as NS
 import unittest
 
 from splatrig.glim import TIMED_POINT, import_trajectory, pack_timed_points, read_tum, \
-    seconds_to_ns
+    seconds_to_ns, write_glim_config
 from splatrig.session import read_json, read_jsonl
 
 
@@ -53,6 +53,37 @@ class GlimTests(unittest.TestCase):
             tum.write_text("1.0 0 0 0 0 0 1\n")
             with self.assertRaisesRegex(ValueError, "8 TUM columns"):
                 list(read_tum(tum, 1))
+
+
+    def test_glim_config_edits_and_refuses_unknown_layout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            source = base / "installed"
+            source.mkdir()
+            (source / "config.json").write_text(
+                '{"global": { // comment\n "config_odometry": "config_odometry_gpu.json",\n'
+                ' "config_sub_mapping": "config_sub_mapping_gpu.json",\n'
+                ' "config_global_mapping": "config_global_mapping_gpu.json"}}')
+            (source / "config_ros.json").write_text(
+                '{"glim_ros": {"acc_scale": 0.0, // auto\n "extension_modules": ["a.so",\n "b.so"],'
+                ' "imu_topic": "/os/imu", "points_topic": "/os/points"}}')
+            (source / "config_sensors.json").write_text('{"sensors": {"T_lidar_imu": [1, 2,\n 3, 0, 0, 0, 1]}}')
+            write_glim_config(base / "out", source=source)
+            out = base / "out"
+            self.assertIn('"config_odometry": "config_odometry_cpu.json"', (out / "config.json").read_text())
+            ros = (out / "config_ros.json").read_text()
+            for text in ['"acc_scale": 9.80665,', '"imu_topic": "/livox/imu"',
+                         '"points_topic": "/livox/points"', '"extension_modules": ["libmemory_monitor.so"]']:
+                self.assertIn(text, ros)
+            self.assertIn('"T_lidar_imu": [0.011, 0.02329, -0.04412, 0, 0, 0, 1]',
+                          (out / "config_sensors.json").read_text())
+            self.assertEqual((source / "config_ros.json").read_text().count("/os/imu"), 1)
+            write_glim_config(base / "gpu", source=source, gpu=True)
+            self.assertIn("config_global_mapping_gpu.json", (base / "gpu/config.json").read_text())
+            (source / "config_sensors.json").write_text('{"sensors": {}}')
+            with self.assertRaisesRegex(ValueError, "setting not found"):
+                write_glim_config(base / "bad", source=source)
+            self.assertFalse((base / "bad").exists())
 
 
 if __name__ == "__main__":

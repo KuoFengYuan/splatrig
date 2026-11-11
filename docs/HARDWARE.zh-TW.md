@@ -173,6 +173,22 @@ MID-360 配置，尚未針對 Mid-360S 驗證。`splatrig import-trajectory traj
 整數奈秒轉為 `trajectory.jsonl`；只有閉環後的 `traj_*` 檔可標為 `final`，
 `odom_*` 不可。
 
+以 GLIM PPA 的 CPU 套件（`ros-jazzy-glim-ros` 1.2.2）測試；其 GPU 套件針對
+CUDA 12.6／13.1，尚未在此 RTX 50 系列 GPU 上嘗試。
+
+```sh
+splatrig glim-config --output runs/glim-config        # CPU 模組、Livox topic、acc_scale
+splatrig glim-bag <bag> --output runs/glim-input
+ROS_DOMAIN_ID=73 ros2 run glim_ros glim_rosbag runs/glim-input/bag --ros-args \
+  -p config_path:=$PWD/runs/glim-config -p dump_path:=$PWD/runs/glim-dump -p auto_quit:=true
+splatrig import-trajectory runs/glim-dump/traj_imu.txt --revision 1 --status final \
+  --frame imu --output runs/trajectory
+```
+
+請使用未被佔用的 `ROS_DOMAIN_ID`：`glim_rosbag` 也會訂閱即時 topic，
+執行中的驅動曾把當下的 IMU 訊息混入離線處理。59 秒靜止 bag 以 4.4 秒處理完成，
+IMU 位姿與第一筆位姿的差距在 7.9 mm 與 0.31° 以內。靜止漂移不代表移動時的精度。
+
 ## 官方與原始來源
 
 - [Livox MID-360 規格](https://www.livoxtech.com/mid-360)

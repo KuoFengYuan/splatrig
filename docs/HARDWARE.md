@@ -200,6 +200,24 @@ verified for the Mid-360S. `splatrig import-trajectory traj_imu.txt --revision N
 `trajectory.jsonl` with exact integer nanoseconds; use `final` only for the
 loop-closed `traj_*` files, never for `odom_*`.
 
+Tested with the CPU packages from the GLIM PPA (`ros-jazzy-glim-ros` 1.2.2); its
+GPU packages target CUDA 12.6/13.1 and were not tried on this RTX 50-series GPU.
+
+```sh
+splatrig glim-config --output runs/glim-config        # CPU modules, Livox topics, acc_scale
+splatrig glim-bag <bag> --output runs/glim-input
+ROS_DOMAIN_ID=73 ros2 run glim_ros glim_rosbag runs/glim-input/bag --ros-args \
+  -p config_path:=$PWD/runs/glim-config -p dump_path:=$PWD/runs/glim-dump -p auto_quit:=true
+splatrig import-trajectory runs/glim-dump/traj_imu.txt --revision 1 --status final \
+  --frame imu --output runs/trajectory
+```
+
+Use an otherwise unused `ROS_DOMAIN_ID`: `glim_rosbag` also subscribes to live
+topics, and a running driver injected current IMU messages into an offline run.
+On the 59 s stationary bag, GLIM processed the data in 4.4 s and the IMU pose
+stayed within 7.9 mm and 0.31° of its first pose. Stationary drift does not
+establish accuracy while moving.
+
 ## Primary references
 
 - [Livox MID-360 specifications](https://www.livoxtech.com/mid-360)

@@ -11,6 +11,7 @@ to SplatRig records with exact integer nanoseconds and wxyz quaternions.
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
+import json
 from pathlib import Path
 import struct
 
@@ -86,6 +87,54 @@ def to_glim_bag(bag: Path, destination: Path, *, lidar_topic="/livox/lidar",
                                     "acc_scale": 9.80665,
                                     "T_lidar_imu_mid360_unverified": MID360_T_LIDAR_IMU}}
         write_json(root / "conversion.json", report)
+    return report
+
+
+GLIM_CONFIG = Path("/opt/ros/jazzy/share/glim/config")
+
+
+def write_glim_config(destination: Path, *, source: Path = GLIM_CONFIG, gpu=False,
+                      points_topic="/livox/points", imu_topic="/livox/imu",
+                      t_lidar_imu=MID360_T_LIDAR_IMU) -> dict:
+    """Copy GLIM's installed configuration with Livox Mid-360(S) settings applied.
+
+    Edits are exact text substitutions on GLIM's commented JSON; a missing key
+    fails instead of silently writing an unmodified configuration.
+    """
+    import re
+    if not (source / "config.json").is_file():
+        raise ValueError(f"GLIM configuration not found in {source}")
+    variant = "gpu" if gpu else "cpu"
+    edits = {"config.json": [(rf'"config_{k}": "config_{k}_(?:gpu|cpu)\.json"',
+                              f'"config_{k}": "config_{k}_{variant}.json"')
+                             for k in ("odometry", "sub_mapping", "global_mapping")],
+             "config_ros.json": [(r'"acc_scale": [^,]+,', '"acc_scale": 9.80665,'),
+                                 (r'"imu_topic": "[^"]*"', f'"imu_topic": "{imu_topic}"'),
+                                 (r'"points_topic": "[^"]*"', f'"points_topic": "{points_topic}"'),
+                                 (r'"extension_modules": \[[^\]]*\]',
+                                  '"extension_modules": ["libmemory_monitor.so"]')],
+             "config_sensors.json": [(r'"T_lidar_imu": \[[^\]]*\]',
+                                      '"T_lidar_imu": [' +
+                                      ", ".join(format(v, "g") for v in t_lidar_imu) + "]")]}
+    with new_output(destination, source) as root:
+        for item in source.iterdir():
+            if item.is_file():
+                (root / item.name).write_bytes(item.read_bytes())
+        for name, rules in edits.items():
+            text = (root / name).read_text(encoding="utf-8")
+            for pattern, replacement in rules:
+                text, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+                if count != 1:
+                    raise ValueError(f"{name}: setting not found for {pattern}")
+            (root / name).write_text(text, encoding="utf-8")
+        report = {"source": str(source), "variant": variant, "points_topic": points_topic,
+                  "imu_topic": imu_topic, "acc_scale": 9.80665, "T_lidar_imu": t_lidar_imu,
+                  "T_lidar_imu_note": "MID-360 layout value; not verified for Mid-360S",
+                  "run": "ROS_DOMAIN_ID=<unused id> ros2 run glim_ros glim_rosbag <glim bag> "
+                         "--ros-args -p config_path:=<this dir> -p dump_path:=<new dir> "
+                         "-p auto_quit:=true"}
+        (root / "splatrig-glim.json").write_text(json.dumps(report, indent=2) + "\n",
+                                                 encoding="utf-8")
     return report
 
 

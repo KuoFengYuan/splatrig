@@ -15,7 +15,7 @@ a COLMAP initialization dataset. It did not estimate the trajectory using SLAM.
 
 | Check | Result |
 | --- | --- |
-| Geometry, timing, export and ROS-message conversion | 58 unit tests passed (panorama, LiDAR import, live console, GLIM bridge) |
+| Geometry, timing, export and ROS-message conversion | 59 unit tests passed (panorama, LiDAR import, live console, GLIM bridge) |
 | Python runtimes | Unit tests and CLI smoke passed on Python 3.12 and 3.14 |
 | End-to-end CLI | Demo → validate → replay → export and clock fit passed |
 | Distribution | Wheel built and installed into a clean environment; CLI smoke passed without runtime dependencies |
@@ -28,7 +28,7 @@ a COLMAP initialization dataset. It did not estimate the trajectory using SLAM.
 | Physical Mid-360S, stationary 59.3 s | No frame/IMU gaps; clock `ptp_inferred` (boundary 0.9996, frame steps 0.9932) |
 | Live console with Mid-360S + MAX2 | LiDAR 10 Hz, IMU 200 Hz, clock `ptp_inferred`, MAX2 preview ~15 fps served; clean camera release on exit |
 | Live console browser check | Headless Chrome 1280×900 and 390×844: layout, status and no console errors. Points rendered only with virtual time; the MJPEG preview did not render headless although the server stream was verified. Not yet checked in an interactive browser |
-| GLIM bag | Static bag → 592 PointCloud2 frames, 5,672,997 points, 11,854 IMU messages; GLIM itself not yet installed |
+| GLIM bag | Static bag → 592 PointCloud2 frames, 5,672,997 points, 11,854 IMU messages; GLIM CPU 1.2.2 ran it in 4.4 s; stationary drift ≤ 7.9 mm and 0.31° over 56 s |
 | Mid-360S import fidelity | All 5,672,997 returned points matched the bag in time, float32 xyz, reflectivity, tag and line |
 | Observation tracks | Zero, intentionally: this is an initialization model |
 | Browser | Desktop 1280×900 and narrow 390×844 viewport checked |

@@ -13,7 +13,7 @@ from . import __version__
 from .clock import fit_clock
 from .demo import create_demo, create_panorama_demo
 from .export import export_colmap, replay
-from .glim import import_trajectory, to_glim_bag
+from .glim import import_trajectory, to_glim_bag, write_glim_config
 from .livox import import_livox
 from .rosview import run as view_pointcloud
 from .panorama import INTERPOLATIONS, PRESETS, panorama_views
@@ -84,6 +84,10 @@ def parser():
     glim.add_argument("--lidar-topic", default="/livox/lidar")
     glim.add_argument("--imu-topic", default="/livox/imu")
     glim.add_argument("--points-topic", default="/livox/points")
+    glim_config = commands.add_parser(
+        "glim-config", help="Write a GLIM configuration for a Livox Mid-360(S)")
+    glim_config.add_argument("--output", type=Path, required=True)
+    glim_config.add_argument("--gpu", action="store_true", help="Use GLIM's GPU modules")
     trajectory = commands.add_parser(
         "import-trajectory", help="Convert a TUM trajectory (e.g. GLIM traj_imu.txt)")
     trajectory.add_argument("tum", type=Path)
@@ -132,6 +136,8 @@ def main(argv=None):
         elif args.command == "glim-bag":
             report = to_glim_bag(args.bag, args.output, lidar_topic=args.lidar_topic,
                                  imu_topic=args.imu_topic, points_topic=args.points_topic)
+        elif args.command == "glim-config":
+            report = write_glim_config(args.output, gpu=args.gpu)
         elif args.command == "import-trajectory":
             report = import_trajectory(args.tum, args.output, revision=args.revision,
                                        status=args.status, frame=args.frame)
