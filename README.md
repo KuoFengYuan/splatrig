@@ -15,9 +15,10 @@ clouds and camera trajectories while walking, then precisely associated images
 and geometry for desktop 3DGS training.
 
 **Current stage: local foundation.** Synthetic replay, clock fitting, pose
-association and COLMAP seed export work now. A ROS 2 odometry recorder is included
-but has not been tested against physical sensors. MAX2 acquisition, panoramic
-conversion, full SLAM integration and indoor/outdoor validation are upcoming.
+association, equirectangular-to-PINHOLE view conversion and COLMAP seed export
+work now. A ROS 2 odometry recorder is included but has not been tested against
+physical sensors. MAX2 acquisition, original .360 decoding, full SLAM integration
+and indoor/outdoor validation are upcoming.
 
 ## Try it without hardware
 
@@ -95,6 +96,8 @@ for which adapters exist and which still require implementation.
 ```sh
 splatrig validate runs/demo
 splatrig fit-clock events.csv --output runs/clock.json
+splatrig demo --panorama --output runs/panorama          # synthetic 360 input
+splatrig panorama-views runs/panorama --output runs/views  # requires ffmpeg
 splatrig record-poses --help
 python -m unittest discover -s tests -v
 python tools/smoke.py

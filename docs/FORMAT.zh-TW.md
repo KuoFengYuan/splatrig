@@ -2,8 +2,8 @@
 
 [English](FORMAT.md) | **繁體中文**
 
-第 1 版格式是裝置擷取與離線處理的交界。目前接受已校正的 PINHOLE 視角 PNG，
-尚不直接讀取原始 .360 影片。
+第 1 版格式是裝置擷取與離線處理的交界。處理流程接受已校正的 PINHOLE 視角 PNG；
+equirectangular 全景影像需先轉成這種視角。尚不解碼原始 .360 影片。
 
 ## 掃描檔案
 
@@ -67,6 +67,51 @@ demo 指令會建立完整範例。原始資料保持不變；重播與匯出使
 座標，通常是 IMU。虛擬相機外參包含固定視角旋轉與實體位置偏移。
 目前格式假設輸出影像朝向固定；隨時間變化的防震必須先移除或明確建模。
 
+## Equirectangular 全景影像
+
+`splatrig panorama-views` 將全景來源轉成一般的第 1 版掃描，內含固定方向的
+PINHOLE 視角。來源保留一般的中繼資料、時鐘、軌跡與點雲，不含 frames.jsonl，
+並在 `rig.json` 中宣告空的相機清單與 panorama 項目：
+
+```json
+{
+  "status": "uncalibrated",
+  "T_rig_lidar": {"translation": [0, 0, 0], "quaternion_wxyz": [1, 0, 0, 0]},
+  "cameras": [],
+  "panorama": {
+    "projection": "equirectangular",
+    "T_rig_sphere": {"translation": [0, 0, 0], "quaternion_wxyz": [1, 0, 0, 0]}
+  }
+}
+```
+
+`panoramas.jsonl` 每行包含正整數 id、相機時鐘的 timestamp_ns 及 image_path。
+影像必須是 ffmpeg 可解碼的 2:1 equirectangular 檔案。
+
+球面座標 S 使用 OpenCV 軸向：+Z 為影像中央欄的地平線方向，+X 為其右方 90°
+（四分之三寬度處），+Y 朝下。W×H 影像的像素中心 (u+0.5, v+0.5) 對應經度
+(u+0.5)/W·360° − 180° 與緯度 90° − (v+0.5)/H·180°。
+
+```text
+R_sphere_view = Ry(yaw) · Rx(pitch) · Rz(roll)
+T_rig_camera  = T_rig_sphere · R_sphere_view
+fx = fy = size / 2 / tan(fov / 2),  cx = cy = size / 2
+```
+
+yaw 為正時向右轉，pitch 為正時向上看，roll 為正時視角的 +X 軸轉向 +Y。
+預設配置有 `cube`（前、右、後、左、上、下）與 `ring8`（每 45° 一個 yaw）；
+`--views` 接受 JSON 清單，欄位為 name、yaw_deg、pitch_deg 及選填的 roll_deg。
+每個視角成為一台相機。Frame ID 為 (全景 id − 1) × 視角數 + 視角序號，
+capture_id 為全景 id，source_panorama_path 記錄來源。rig 狀態會沿用，
+因此尚未校正的 T_rig_sphere 仍會阻擋正式匯出。
+
+像素重取樣由 ffmpeg 的 v360 濾鏡執行，輸入會先轉為 8-bit RGB；ffmpeg 6.1
+的 16-bit 雙線性內插在全白處會溢位。每次轉換前，SplatRig 會重取樣一張以像素
+值編碼自身光線方向的全景圖；若安裝的 ffmpeg 最大誤差超過 0.6 個輸入像素，
+或平均偏差超過 0.25 像素，就拒絕轉換。`panorama-views.json` 記錄 ffmpeg 版本
+與探測結果。同一張全景的所有視角共用其時間戳。rolling shutter、拼接視差、
+各視角曝光時間、鏡頭遮罩及隨時間變化的防震均未建模，也不解碼原始 .360／EAC 影片。
+
 ## 時間
 
 全部時間為非負整數奈秒。相機與參考時鐘可能使用不同起點，`clock.json` 定義：
@@ -125,5 +170,5 @@ COLMAP 點的觀測軌跡及影像 POINTS2D 都是空陣列，是有效初始化
 體素重播有可設定的佔用體素預算，超過時明確失敗，不是無上限的城市級串流
 建圖器。軌跡與影像紀錄載入記憶體，預覽最多內嵌 20,000 個抽樣點。
 
-各相機深度、遮罩、360 投影轉換、特徵軌跡、畫質指標及訓練器執行屬於後續
+各相機深度、遮罩、原始 .360／EAC 解碼、特徵軌跡、畫質指標及訓練器執行屬於後續
 里程碑。深度監督需要先將 LiDAR 距離轉為相機 Z 深度，並處理可見性遮罩。

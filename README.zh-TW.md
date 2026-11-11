@@ -13,9 +13,10 @@
 SplatRig 的目標是 GoPro MAX2 + Livox MID-360 手持掃描設備：邊走邊顯示點雲
 與相機軌跡，再將影像與幾何精確配對，交給桌面 3DGS 訓練器。
 
-**目前階段：本機基礎版本。** 已可執行合成資料重播、時鐘擬合、位姿配對與
-COLMAP 種子模型匯出。已提供 ROS 2 里程計記錄器，但尚未與實體感測器測試。
-MAX2 擷取、全景轉換、完整 SLAM 串接及室內外驗證為後續工作。
+**目前階段：本機基礎版本。** 已可執行合成資料重播、時鐘擬合、位姿配對、
+equirectangular 轉 PINHOLE 視角與 COLMAP 種子模型匯出。已提供 ROS 2 里程計
+記錄器，但尚未與實體感測器測試。MAX2 擷取、原始 .360 解碼、完整 SLAM 串接及
+室內外驗證為後續工作。
 
 ## 不需要硬體的示範
 
@@ -90,6 +91,8 @@ flowchart LR
 ```sh
 splatrig validate runs/demo
 splatrig fit-clock events.csv --output runs/clock.json
+splatrig demo --panorama --output runs/panorama          # 合成 360 輸入
+splatrig panorama-views runs/panorama --output runs/views  # 需要 ffmpeg
 splatrig record-poses --help
 python -m unittest discover -s tests -v
 python tools/smoke.py

@@ -3,7 +3,8 @@
 **English** | [繁體中文](FORMAT.zh-TW.md)
 
 Schema version 1 is the boundary between device adapters and offline processing.
-It currently accepts rectified PINHOLE views saved as PNG, not raw .360 media.
+Processing accepts rectified PINHOLE views saved as PNG; equirectangular panoramas
+are first converted to such views. Raw .360 media is not decoded.
 
 ## Session files
 
@@ -69,6 +70,56 @@ The rig frame is the frame tracked by the supplied trajectory, often the IMU.
 A virtual camera's transform includes its fixed view rotation and physical offset.
 The current schema assumes a fixed output orientation. Time-varying stabilization
 must be removed or explicitly modeled before using it.
+
+## Equirectangular panoramas
+
+`splatrig panorama-views` converts a panorama source into an ordinary schema 1
+capture with fixed PINHOLE views. The source keeps the usual metadata, clock,
+trajectory and points, has no frames.jsonl, and declares an empty camera list and
+a panorama entry in `rig.json`:
+
+```json
+{
+  "status": "uncalibrated",
+  "T_rig_lidar": {"translation": [0, 0, 0], "quaternion_wxyz": [1, 0, 0, 0]},
+  "cameras": [],
+  "panorama": {
+    "projection": "equirectangular",
+    "T_rig_sphere": {"translation": [0, 0, 0], "quaternion_wxyz": [1, 0, 0, 0]}
+  }
+}
+```
+
+`panoramas.jsonl` lists positive id, timestamp_ns in the camera clock and
+image_path. Images must be 2:1 equirectangular files that ffmpeg can decode.
+
+Sphere frame S uses OpenCV axes: +Z is the image's center column on the horizon,
++X is 90° to its right (three-quarter width) and +Y points down. Pixel center
+(u+0.5, v+0.5) of a W×H image has longitude (u+0.5)/W·360° − 180° and latitude
+90° − (v+0.5)/H·180°.
+
+```text
+R_sphere_view = Ry(yaw) · Rx(pitch) · Rz(roll)
+T_rig_camera  = T_rig_sphere · R_sphere_view
+fx = fy = size / 2 / tan(fov / 2),  cx = cy = size / 2
+```
+
+Positive yaw turns right, positive pitch looks up, and positive roll turns the
+view's +X axis toward +Y. Presets are `cube` (front, right, back, left, up, down)
+and `ring8` (yaw every 45°); `--views` accepts a JSON list of name, yaw_deg,
+pitch_deg and optional roll_deg. Each view becomes one camera. Frame IDs are
+(panorama id − 1) × view count + view index, capture_id is the panorama id and
+source_panorama_path records provenance. The rig status carries over, so an
+uncalibrated T_rig_sphere still blocks final export.
+
+ffmpeg's v360 filter resamples pixels after converting input to 8-bit RGB;
+ffmpeg 6.1 overflows 16-bit bilinear samples at full white. Before each run,
+SplatRig resamples a panorama whose pixels encode their own ray direction and
+refuses to convert if the installed ffmpeg exceeds 0.6 input pixels of maximum
+error or 0.25 pixels of mean bias. `panorama-views.json` records the ffmpeg version
+and probe result. All views share their panorama's timestamp. Rolling shutter,
+stitching parallax, per-view exposure time, lens masks and time-varying
+stabilization are not modeled, and original .360/EAC media is not decoded.
 
 ## Time
 
@@ -137,6 +188,6 @@ Voxel replay has a configurable occupied-voxel budget; it fails explicitly when
 full. It is not a streaming, unlimited city-scale mapper. Trajectory and frame
 records are loaded into memory. The preview embeds at most 20,000 sampled points.
 
-Per-camera depth, masks, 360 projection conversion, feature tracks, image-quality
+Per-camera depth, masks, raw .360/EAC decoding, feature tracks, image-quality
 metrics and trainer execution are future milestones. LiDAR range must be transformed
 to camera Z depth with visibility masking before any depth-supervision integration.

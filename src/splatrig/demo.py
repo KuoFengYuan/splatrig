@@ -10,6 +10,7 @@ import zlib
 
 from .clock import Clock
 from .geometry import Pose, Trajectory, rotate
+from .panorama import equirect_direction
 from .session import write_json, write_jsonl
 
 
@@ -67,47 +68,26 @@ def scene_hit(origin, direction):
     return point, color
 
 
-def create_demo(destination: Path):
+def write_common(destination: Path, rig: dict, note: str):
+    """Write metadata, clock, trajectory and timed points shared by both demos."""
     if destination.exists():
         raise ValueError(f"Demo destination already exists: {destination}")
     destination.mkdir(parents=True)
     (destination / "images").mkdir()
     anchor = 1_000_000_000_000_000_000
     clock = Clock(0, anchor, 1.00002, "calibrated")
-    T_rig_camera = Pose((0.08, 0, 0.12), (0.5, -0.5, 0.5, -0.5))
-    camera = {"id": 1, "name": "synthetic_front", "model": "PINHOLE",
-              "width": 160, "height": 120, "params": [92, 92, 80, 60],
-              "T_rig_camera": T_rig_camera.to_dict()}
     write_json(destination / "capture-meta.json", {
         "schema_version": 1, "source": "synthetic", "world_up": "+Z",
         "units": "meters", "camera_convention": "opencv", "point_frame": "lidar",
         "trajectory_status": "final", "pose_revision": 1, "max_pose_gap_ns": 100_000_000,
-        "note": "Synthetic ground truth. No GoPro, LiDAR, SLAM or hardware benchmark."})
+        "note": note})
     write_json(destination / "rig.json", {
-        "status": "calibrated", "T_rig_lidar": Pose.identity().to_dict(),
-        "cameras": [camera]})
+        "status": "calibrated", "T_rig_lidar": Pose.identity().to_dict(), **rig})
     write_json(destination / "clock.json", clock.to_dict())
     records = [{"timestamp_ns": anchor+i*50_000_000, "revision": 1,
                 **rig_pose(i*0.05).to_dict()} for i in range(165)]
     write_jsonl(destination / "trajectory.jsonl", records)
     trajectory = Trajectory(records, 100_000_000)
-    frames = []
-    for index in range(8):
-        camera_time = 500_000_000+index*900_000_000
-        pose = trajectory.at(clock.map(camera_time)).compose(T_rig_camera)
-        rows = []
-        for v in range(camera["height"]):
-            row = bytearray()
-            for u in range(camera["width"]):
-                ray = ((u+0.5-80)/92, (v+0.5-60)/92, 1.0)
-                _, color = scene_hit(pose.translation, rotate(pose.quaternion_wxyz, ray))
-                row.extend(color)
-            rows.append(row)
-        name = f"images/front_{index+1:04d}.png"
-        (destination / name).write_bytes(png_bytes(camera["width"], camera["height"], rows))
-        frames.append({"id": index+1, "camera_id": 1, "timestamp_ns": camera_time,
-                       "capture_id": index+1, "image_path": name})
-    write_jsonl(destination / "frames.jsonl", frames)
 
     def samples():
         for scan in range(32):
@@ -125,5 +105,67 @@ def create_demo(destination: Path):
                     yield {"timestamp_ns": timestamp,
                            "xyz": pose.inverse().transform(point), "rgb": color}
     write_jsonl(destination / "points.jsonl", samples())
-    return {"source": "synthetic", "frames": len(frames), "trajectory_samples": len(records),
+    return clock, trajectory, len(records)
+
+
+# Synthetic camera and sphere frames: OpenCV +Z looks along rig +X, +Y along rig -Z.
+T_RIG_SENSOR = Pose((0.08, 0, 0.12), (0.5, -0.5, 0.5, -0.5))
+
+
+def create_demo(destination: Path):
+    camera = {"id": 1, "name": "synthetic_front", "model": "PINHOLE",
+              "width": 160, "height": 120, "params": [92, 92, 80, 60],
+              "T_rig_camera": T_RIG_SENSOR.to_dict()}
+    clock, trajectory, samples = write_common(
+        destination, {"cameras": [camera]},
+        "Synthetic ground truth. No GoPro, LiDAR, SLAM or hardware benchmark.")
+    frames = []
+    for index in range(8):
+        camera_time = 500_000_000+index*900_000_000
+        pose = trajectory.at(clock.map(camera_time)).compose(T_RIG_SENSOR)
+        rows = []
+        for v in range(camera["height"]):
+            row = bytearray()
+            for u in range(camera["width"]):
+                ray = ((u+0.5-80)/92, (v+0.5-60)/92, 1.0)
+                _, color = scene_hit(pose.translation, rotate(pose.quaternion_wxyz, ray))
+                row.extend(color)
+            rows.append(row)
+        name = f"images/front_{index+1:04d}.png"
+        (destination / name).write_bytes(png_bytes(camera["width"], camera["height"], rows))
+        frames.append({"id": index+1, "camera_id": 1, "timestamp_ns": camera_time,
+                       "capture_id": index+1, "image_path": name})
+    write_jsonl(destination / "frames.jsonl", frames)
+    return {"source": "synthetic", "frames": len(frames), "trajectory_samples": samples,
             "raw_points": 32*60*9, "path": str(destination)}
+
+
+def create_panorama_demo(destination: Path, count: int = 8, width: int = 256):
+    """Synthetic equirectangular captures; input for the panorama-views command."""
+    if not 1 <= count <= 8 or width < 16 or width % 2:
+        raise ValueError("Panorama demo needs 1-8 panoramas and an even width >= 16")
+    height = width // 2
+    rig = {"cameras": [], "panorama": {"projection": "equirectangular",
+                                       "T_rig_sphere": T_RIG_SENSOR.to_dict()}}
+    clock, trajectory, samples = write_common(
+        destination, rig,
+        "Synthetic equirectangular ground truth. No GoPro stitching, rolling shutter, "
+        "LiDAR, SLAM or hardware benchmark.")
+    records = []
+    for index in range(count):
+        camera_time = 500_000_000+index*900_000_000
+        pose = trajectory.at(clock.map(camera_time)).compose(T_RIG_SENSOR)
+        rows = []
+        for v in range(height):
+            row = bytearray()
+            for u in range(width):
+                ray = equirect_direction(u+0.5, v+0.5, width, height)
+                _, color = scene_hit(pose.translation, rotate(pose.quaternion_wxyz, ray))
+                row.extend(color)
+            rows.append(row)
+        name = f"images/panorama_{index+1:04d}.png"
+        (destination / name).write_bytes(png_bytes(width, height, rows))
+        records.append({"id": index+1, "timestamp_ns": camera_time, "image_path": name})
+    write_jsonl(destination / "panoramas.jsonl", records)
+    return {"source": "synthetic", "panoramas": count, "panorama_size": [width, height],
+            "trajectory_samples": samples, "raw_points": 32*60*9, "path": str(destination)}

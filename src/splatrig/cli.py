@@ -11,8 +11,9 @@ import sys
 
 from . import __version__
 from .clock import fit_clock
-from .demo import create_demo
+from .demo import create_demo, create_panorama_demo
 from .export import export_colmap, replay
+from .panorama import INTERPOLATIONS, PRESETS, panorama_views
 from .ros import record_poses
 from .session import prepare, write_json
 
@@ -24,6 +25,8 @@ def parser():
     commands = root.add_subparsers(dest="command", required=True)
     demo = commands.add_parser("demo", help="Create a synthetic room capture; no hardware needed")
     demo.add_argument("--output", type=Path, required=True)
+    demo.add_argument("--panorama", action="store_true",
+                      help="Write equirectangular panoramas instead of PINHOLE frames")
     for name, help_text in [
             ("validate", "Validate session geometry, images, calibration and timing"),
             ("replay", "Replay timestamped points and image poses into a local preview"),
@@ -36,6 +39,20 @@ def parser():
                              help="Diagnostic output with unfinalized poses or calibration")
         if name != "validate":
             command.add_argument("--output", type=Path, required=True)
+    views = commands.add_parser(
+        "panorama-views", help="Cut fixed PINHOLE views from equirectangular panoramas "
+                               "(ffmpeg required)")
+    views.add_argument("session", type=Path)
+    views.add_argument("--output", type=Path, required=True)
+    layout = views.add_mutually_exclusive_group()
+    layout.add_argument("--layout", choices=sorted(PRESETS), default="cube")
+    layout.add_argument("--views", type=Path, metavar="JSON",
+                        help="List of {name, yaw_deg, pitch_deg, roll_deg}")
+    views.add_argument("--size", type=int, default=1024, metavar="PIXELS")
+    views.add_argument("--fov-deg", type=float, default=90.0)
+    views.add_argument("--interp", choices=INTERPOLATIONS, default="lanczos")
+    views.add_argument("--ffmpeg", default="ffmpeg")
+    views.add_argument("--ffprobe", default="ffprobe")
     clock = commands.add_parser("fit-clock", help="Fit paired physical-event timestamps")
     clock.add_argument("events", type=Path, help="CSV columns: camera_ns,reference_ns")
     clock.add_argument("--output", type=Path, required=True)
@@ -52,7 +69,12 @@ def main(argv=None):
     args = parser().parse_args(argv)
     try:
         if args.command == "demo":
-            report = create_demo(args.output)
+            report = (create_panorama_demo if args.panorama else create_demo)(args.output)
+        elif args.command == "panorama-views":
+            report = panorama_views(args.session, args.output, layout=args.layout,
+                                    views_file=args.views, size=args.size,
+                                    fov_deg=args.fov_deg, interp=args.interp,
+                                    ffmpeg=args.ffmpeg, ffprobe=args.ffprobe)
         elif args.command == "fit-clock":
             if args.output.exists():
                 raise ValueError(f"Clock output already exists: {args.output}")

@@ -14,12 +14,16 @@ a COLMAP initialization dataset. It did not estimate the trajectory using SLAM.
 
 | Check | Result |
 | --- | --- |
-| Geometry, timing, export and ROS-message conversion | 28 unit tests passed |
+| Geometry, timing, export and ROS-message conversion | 37 unit tests passed, including 9 panorama tests |
 | Python runtimes | Unit tests and CLI smoke passed on Python 3.12 and 3.14 |
 | End-to-end CLI | Demo → validate → replay → export and clock fit passed |
 | Distribution | Wheel built and installed into a clean environment; CLI smoke passed without runtime dependencies |
 | Demo data | 8 images, 165 poses, 17,280 source points, 14,806 voxels at 0.05 m |
 | COLMAP native reader | Read 8 registered images and 14,806 points |
+| Panorama views | Synthetic 2:1 panoramas → cube views; 48 frames from 6 cameras validated and exported |
+| Panorama geometry | Each view matched a direct render of the same scene; ±1° rotations never matched better |
+| ffmpeg convention probe | ffmpeg 6.1.1: 0.39 input pixels maximum error, −0.09/0.11 pixels mean bias |
+| COLMAP native reader, panorama views | Read 6 cameras, 48 registered images and 14,806 points |
 | Observation tracks | Zero, intentionally: this is an initialization model |
 | Browser | Desktop 1280×900 and narrow 390×844 viewport checked |
 | Browser controls | Pointer/keyboard orbit, wheel zoom, cameras and reset passed |
@@ -40,7 +44,8 @@ that runtime and hosted CI have not been run in this local-only phase.
 - Physical sensor discovery, control or capture.
 - Real-time SLAM, loop closure or measured live throughput.
 - MAX2 exposure synchronization or actual rig calibration.
-- Original .360 decoding and panoramic view generation.
+- Original .360/EAC decoding and conversion of real MAX2 stitched panoramas.
+- Rolling shutter, stitching parallax or masks in panorama views.
 - Real indoor/outdoor geometry accuracy.
 - 3DGS training, image quality or trainer-specific compatibility.
 - Physical phone interaction, sensor thermals or portable power/runtime.
@@ -55,6 +60,9 @@ After installing the project:
     python -m unittest discover -s tests -v
     python tools/smoke.py
     python tools/check_project.py
+
+Panorama tests and the panorama smoke step need ffmpeg and ffprobe on PATH;
+without them the conversion tests are skipped and the smoke report says so.
 
 Optional browser checks require the dev extra and a local Chrome/Chromium:
 

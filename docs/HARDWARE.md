@@ -13,6 +13,7 @@ Physical-device capture has not been validated in this repository yet.
 | Livox Driver 2 | Sensor transport; preserve per-point time | Integration pending |
 | GLIM | Live cloud, rig trajectory and global optimization | External dependency |
 | ROS odometry recorder | Save configured Odometry topic | Implemented; message conversion tested, live ROS untested |
+| Panorama view converter | Equirectangular → fixed PINHOLE views via ffmpeg | Implemented; synthetic panoramas only, no MAX2 media yet |
 | MAX2 adapter | Preview/control, original media and time metadata | Planned |
 | SplatRig core | Calibration model, pose association, replay, COLMAP | Implemented with synthetic checks |
 | Desktop trainer | Train a Gaussian model | External; no capture-quality benchmark yet |

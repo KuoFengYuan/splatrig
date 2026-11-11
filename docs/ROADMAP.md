@@ -12,6 +12,8 @@ CPU-only synthetic room, timestamped point replay, rigid-pose interpolation,
 affine clock fitting, independent sensor extrinsics, consistent pose revisions,
 COLMAP binary/text initialization export, local preview and automated checks.
 The optional ROS recorder's message conversion is tested; its live runtime is not.
+Equirectangular panoramas convert to fixed PINHOLE views with a measured ffmpeg
+convention check; this is tested on synthetic panoramas, not MAX2 media.
 
 ## M1 — real sensor acquisition
 
@@ -31,6 +33,7 @@ all loss; make no throughput claim before this test.
 - Extract matched timing events or gyro sequences from the actual media.
 - Validate clock rate/offset across the full capture, including chapter boundaries.
 - Convert 360 imagery to fixed PINHOLE views, retaining exposure groups and masks.
+  Equirectangular conversion exists; masks and original .360/EAC decoding remain.
 - Test output orientation, near-object stitching and rolling shutter.
 
 Acceptance: known geometry projects consistently during stationary, translating
