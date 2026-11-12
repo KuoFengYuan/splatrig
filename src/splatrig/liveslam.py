@@ -152,14 +152,20 @@ def alive(pid: int) -> bool:
     return True
 
 
-def stop_group(pgid: int, timeout=30.0):
-    """SIGINT a process group, then SIGKILL it if it outlives the timeout."""
+def stop_group(pgid: int, timeout=30.0, leader: subprocess.Popen | None = None):
+    """SIGINT a process group, then SIGKILL it if it outlives the timeout.
+
+    Pass the leader when it is this process's child: until it is reaped it stays a
+    zombie, and a zombie still counts as a member of the group.
+    """
     try:
         os.killpg(pgid, signal.SIGINT)
     except ProcessLookupError:
         return
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        if leader is not None:
+            leader.poll()
         try:
             os.killpg(pgid, 0)
         except ProcessLookupError:
@@ -223,7 +229,7 @@ class GlimProcess:
 
     def stop(self):
         # ros2 run exits before glim_rosnode, so wait on the whole process group.
-        stop_group(self.process.pid)
+        stop_group(self.process.pid, leader=self.process)
         self.process.wait()
         self.log.close()
         shutil.rmtree(self.folder, ignore_errors=True)

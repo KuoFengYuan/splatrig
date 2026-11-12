@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Desktop entry point for SplatRig.
+#   tools/splatrig-app              run `splatrig start`, keep the window open after it stops
+#   tools/splatrig-app --install    add "SplatRig" to this user's application menu (no sudo)
+#   tools/splatrig-app --remove     remove that menu entry
+set -uo pipefail
+repo="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+target="${XDG_DATA_HOME:-$HOME/.local/share}/applications/splatrig.desktop"
+case "${1:-}" in
+  --install)
+    mkdir -p "$(dirname "$target")"
+    cat > "$target" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=SplatRig
+Comment=Live LiDAR and MAX2 capture console
+Exec="$repo/tools/splatrig-app"
+Icon=camera-video
+Terminal=true
+Categories=Graphics;
+DESKTOP
+    chmod 644 "$target"
+    echo "Installed $target; find SplatRig in the application menu." ;;
+  --remove)
+    rm -f "$target"; echo "Removed $target" ;;
+  "")
+    "$repo/tools/splatrig-ros" start
+    echo
+    read -r -p "SplatRig stopped. Press Enter to close this window." _ ;;
+  *)
+    echo "usage: tools/splatrig-app [--install | --remove]" >&2; exit 2 ;;
+esac

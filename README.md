@@ -14,11 +14,31 @@ SplatRig is being built for a handheld GoPro MAX2 + Livox MID-360 rig: live poin
 clouds and camera trajectories while walking, then precisely associated images
 and geometry for desktop 3DGS training.
 
-**Current stage: local foundation.** Synthetic replay, clock fitting, pose
-association, equirectangular-to-PINHOLE view conversion and COLMAP seed export
-work now. A ROS 2 odometry recorder is included but has not been tested against
-physical sensors. MAX2 acquisition, original .360 decoding, full SLAM integration
-and indoor/outdoor validation are upcoming.
+**Current stage: first hardware version.** A live console shows the Mid-360S
+cloud, the MAX2 preview and a live GLIM route and map, and records both devices.
+Recorded captures are processed end to end (.360 decoding, GLIM trajectory, gyro
+calibration of the camera mount, PINHOLE views, COLMAP seed) into a dataset that
+stays marked provisional: the camera translation is still entered by hand and
+accuracy is not yet measured. Indoor/outdoor validation and 3DGS training are next.
+
+## Start a live capture
+
+On the capture machine (Ubuntu 24.04 with ROS 2 Jazzy, the Livox driver and GLIM;
+see [hardware](docs/HARDWARE.md#one-command-start)):
+
+```sh
+tools/splatrig-ros start
+```
+
+It checks the machine, starts the Livox driver unless one is running, starts the
+console with live GLIM and opens http://127.0.0.1:8090/?view=map. Ctrl+C stops
+everything it started. `tools/splatrig-ros doctor` only reports what is missing,
+with the command that fixes it. One-time setup:
+
+```sh
+sudo tools/install-ptp-service <lidar-nic>   # LiDAR time sync as a service; doctor prints the NIC
+tools/splatrig-app --install                 # "SplatRig" in the application menu
+```
 
 ## Try it without hardware
 
@@ -100,7 +120,9 @@ splatrig demo --panorama --output runs/panorama          # synthetic 360 input
 splatrig panorama-views runs/panorama --output runs/views  # requires ffmpeg
 splatrig import-livox <bag> --output runs/lidar            # requires ROS 2 + Livox driver
 splatrig live                                              # local console, http://127.0.0.1:8090/
-tools/splatrig-ros live --slam --calibration <calibration.json>   # + live GLIM route and map
+tools/splatrig-ros start                                   # checks + driver + console + GLIM
+tools/splatrig-ros doctor                                  # what is missing on this machine
+tools/splatrig-ros live --slam --calibration <calibration.json>   # console only, driver already running
 splatrig glim-bag <bag> --output runs/glim                 # PointCloud2 copy for GLIM
 tools/splatrig-ros calibrate-gyro <rotation capture> --output runs/mount-calibration
 tools/splatrig-ros process-capture <capture> --output <run> --calibration runs/mount-calibration/calibration.json

@@ -144,6 +144,31 @@ source ROS 2 與 `~/ws_livox`（可用 `LIVOX_WS` 覆寫），並把專案加到
 `PYTHONPATH` 後面。若在 source ROS 之後直接設定 `PYTHONPATH=…/src`，
 會覆蓋 ROS 的路徑而找不到 `rclpy`。
 
+### 一鍵啟動
+
+`tools/splatrig-ros start` 會執行啟動檢查；若沒有 driver 節點在執行，就啟動
+`livox_ros_driver2`（`msg_MID360s_launch.py`，可用 `--driver-launch` 覆寫）；接著啟動含即時
+GLIM 的介面（`--no-slam` 可略過），並在預設瀏覽器開啟 Map 視角（`--no-browser` 可略過）。
+按 Ctrl+C 會停止介面、GLIM 與由它啟動的 driver；原本就在執行的 driver 不會被停止。
+`tools/splatrig-ros doctor` 只列出相同的檢查，有失敗項目時以非零狀態結束：
+
+- ROS 2 環境、已安裝的 driver 設定與 GLIM；
+- 擁有設定中 `host_ip` 的網卡，以及 LiDAR 是否回應 ping；
+- 該網卡上恰好一個帶 `--ptp_minor_version 0` 的 ptp4l；
+- 是否已有 driver 節點（會沿用）、MAX2 USB 連線，以及介面埠是否可用。
+
+位址與網卡名稱都從已安裝的 `MID360s_config.json` 與主機網卡讀取，因此專案中不存放
+任何機器專屬設定。`sudo tools/install-ptp-service <nic>` 會安裝
+`splatrig-ptp@<nic>.service`（`ptp4l -i <nic> -S -m --ptp_minor_version 0`），並綁定該網卡，
+開機或插上 USB 網卡時自動啟動；安裝前請先停止手動啟動的 ptp4l，因為只能有一個
+（`--remove` 可移除）。`tools/splatrig-app --install` 會在應用程式選單加入「SplatRig」，
+它在終端機中執行 `start`，結束後保留視窗以便閱讀訊息。`tools/splatrig-ros` 會傳入桌面
+工作階段變數，以便開啟瀏覽器。本機已測試：doctor，以及在獨立 ROS domain 中重播 bag
+執行 `start`（里程計 10 Hz、單一 GLIM、1 秒內停止）；啟動 driver 的流程、PTP 服務與
+選單項目僅有單元測試或檔案驗證，尚未做過冷啟動測試。
+
+### 介面細節
+
 `splatrig live` 在 http://127.0.0.1:8090/ 提供本機頁面（只綁定 localhost）。頁面顯示
 感測器座標中最近一秒的 LiDAR 點、MAX2 預覽、頻率與時鐘狀態，以及錄製按鈕：
 在 `~/captures` 下建立新資料夾，同時以 `ros2 bag record` 錄製原始 Livox topic

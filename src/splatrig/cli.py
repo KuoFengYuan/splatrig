@@ -69,6 +69,25 @@ def parser():
         "ros-pointcloud", help="Republish Livox CustomMsg as PointCloud2 for viewers (ROS 2)")
     view.add_argument("--input", default="/livox/lidar")
     view.add_argument("--output", default="/splatrig/points")
+    start = commands.add_parser(
+        "start", help="Check the machine, start the Livox driver, live console and GLIM, "
+                      "and open the console in a browser (ROS 2)")
+    start.add_argument("--port", type=int, default=8090)
+    start.add_argument("--captures", type=Path, default=Path.home() / "captures")
+    start.add_argument("--gopro", default="auto", help="Camera IP, 'auto' or 'none'")
+    start.add_argument("--no-slam", action="store_true", help="Do not run GLIM")
+    start.add_argument("--no-browser", action="store_true", help="Do not open a browser")
+    start.add_argument("--calibration", type=Path,
+                       help="calibration.json from calibrate-gyro, to show the camera pose")
+    start.add_argument("--camera-offset", type=float, nargs=3, default=(0.0, 0.0, 0.0),
+                       metavar=("X", "Y", "Z"))
+    start.add_argument("--driver-launch", default="msg_MID360s_launch.py",
+                       help="livox_ros_driver2 launch file for this LiDAR model")
+    doctor = commands.add_parser(
+        "doctor", help="Report whether this machine is ready for a live capture")
+    doctor.add_argument("--port", type=int, default=8090)
+    doctor.add_argument("--gopro", default="auto", help="Camera IP, 'auto' or 'none'")
+    doctor.add_argument("--no-slam", action="store_true", help="Do not require GLIM")
     live = commands.add_parser(
         "live", help="Local live console: LiDAR cloud, MAX2 preview and recording (ROS 2)")
     live.add_argument("--port", type=int, default=8090)
@@ -160,6 +179,17 @@ def main(argv=None):
         elif args.command == "ros-pointcloud":
             view_pointcloud(args.input, args.output)
             report = {"input": args.input, "output": args.output}
+        elif args.command == "doctor":
+            from .startup import checks, format_checks
+            results = checks(args.port, args.gopro, not args.no_slam)
+            print("SplatRig start-up check\n" + format_checks(results))
+            return 1 if any(c.level == "fail" for c in results) else 0
+        elif args.command == "start":
+            from .startup import start as start_console
+            start_console(args.port, args.captures, args.gopro, slam=not args.no_slam,
+                          browser=not args.no_browser, calibration=args.calibration,
+                          camera_offset=tuple(args.camera_offset), launch=args.driver_launch)
+            return 0
         elif args.command == "live":
             from .gopro import detect_camera
             from .live import serve

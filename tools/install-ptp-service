@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# One-time setup, run with sudo: keep the LiDAR's PTP master running as a systemd
+# service. It starts whenever the given network interface appears (boot or USB
+# plug-in) and restarts if it exits. The Mid-360S needs PTP v2.0
+# (--ptp_minor_version 0); this NIC offers software timestamps only (-S).
+#   sudo tools/install-ptp-service <lidar-nic>      (`splatrig doctor` prints the name)
+#   sudo tools/install-ptp-service --remove
+set -euo pipefail
+unit=/etc/systemd/system/splatrig-ptp@.service
+if [ "$(id -u)" != 0 ]; then echo "Run with sudo" >&2; exit 1; fi
+if [ "${1:-}" = "--remove" ]; then
+  for name in $(systemctl list-units --all --plain --no-legend 'splatrig-ptp@*' | awk '{print $1}'); do
+    systemctl disable --now "$name"
+  done
+  rm -f "$unit"; systemctl daemon-reload; echo "Removed $unit"; exit 0
+fi
+nic="${1:?usage: sudo tools/install-ptp-service <lidar-nic> | --remove}"
+ip link show "$nic" >/dev/null || { echo "No interface named $nic" >&2; exit 1; }
+ptp="$(command -v ptp4l)" || { echo "ptp4l not found: sudo apt install linuxptp" >&2; exit 1; }
+cat > "$unit" <<UNIT
+[Unit]
+Description=PTP master for the Livox LiDAR on %i (SplatRig)
+BindsTo=sys-subsystem-net-devices-%i.device
+After=sys-subsystem-net-devices-%i.device
+
+[Service]
+ExecStart=$ptp -i %i -S -m --ptp_minor_version 0
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=sys-subsystem-net-devices-%i.device
+UNIT
+systemctl daemon-reload
+systemctl enable --now "splatrig-ptp@$nic.service"
+echo "PTP master enabled on $nic. Stop any ptp4l you started by hand: exactly one may run."
+systemctl --no-pager --lines=3 status "splatrig-ptp@$nic.service" || true

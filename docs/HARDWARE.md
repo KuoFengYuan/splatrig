@@ -167,6 +167,36 @@ environment (no conda), sources ROS 2 and `~/ws_livox` (override with `LIVOX_WS`
 and appends the repository to the ROS `PYTHONPATH`. Setting `PYTHONPATH=…/src`
 directly after sourcing ROS replaces the ROS entries and hides `rclpy`.
 
+### One-command start
+
+`tools/splatrig-ros start` runs the start-up checks, starts `livox_ros_driver2`
+(`msg_MID360s_launch.py`, override with `--driver-launch`) unless a driver node is
+already running, then the console with live GLIM (`--no-slam` to skip), and opens
+the Map view in the default browser (`--no-browser`). Ctrl+C stops the console,
+GLIM and a driver it started; a driver that was already running is left alone.
+`tools/splatrig-ros doctor` prints the same checks and exits non-zero on a failure:
+
+- ROS 2 environment, the installed driver configuration and GLIM;
+- the NIC that holds the configured `host_ip`, and whether the LiDAR answers ping;
+- exactly one ptp4l on that NIC with `--ptp_minor_version 0`;
+- a running driver node (reused), the MAX2 USB link and a free console port.
+
+Addresses and the NIC name are read from the installed `MID360s_config.json` and
+the host interfaces, so nothing machine-specific is stored in the repository.
+`sudo tools/install-ptp-service <nic>` installs `splatrig-ptp@<nic>.service`
+(`ptp4l -i <nic> -S -m --ptp_minor_version 0`), bound to that interface so it
+starts at boot or when the USB adapter is plugged in; stop a manually started
+ptp4l first, since exactly one may run (`--remove` uninstalls).
+`tools/splatrig-app --install` adds a "SplatRig" menu entry that runs `start` in a
+terminal and keeps the window open afterwards so messages stay readable.
+`tools/splatrig-ros` passes the desktop session variables through so a browser
+can open. Tested on this machine: doctor, and `start` in an isolated ROS domain
+with a replayed bag (10 Hz odometry, one GLIM, stopped in 1 s); the driver-start
+path, the PTP service and the menu entry are covered by unit tests or file
+validation only, not yet by a cold start.
+
+### Console details
+
 `splatrig live` serves a local page at http://127.0.0.1:8090/ (localhost only). It
 shows the last second of LiDAR points in the sensor frame, the MAX2 preview, rate
 and clock status, and a Record button that starts a `ros2 bag record` of the raw

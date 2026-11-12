@@ -453,7 +453,7 @@ def camera_mount(calibration: Path | None, offset=(0.0, 0.0, 0.0)):
 
 def serve(port: int, captures: Path, gopro_host: str | None, lidar_topic: str,
           imu_topic: str, preview: bool = True, live_slam: bool = False,
-          calibration: Path | None = None, camera_offset=(0.0, 0.0, 0.0)):
+          calibration: Path | None = None, camera_offset=(0.0, 0.0, 0.0), ready=None):
     lidar = LidarState()
     camera = Camera(GoPro(gopro_host) if gopro_host else None)
     recorder = Recorder(captures, camera, (lidar_topic, imu_topic))
@@ -473,10 +473,14 @@ def serve(port: int, captures: Path, gopro_host: str | None, lidar_topic: str,
             camera.error = str(error)
     print(f"SplatRig live console: http://127.0.0.1:{port}/  (GoPro: {gopro_host or 'none'})",
           flush=True)
+    print("Press Ctrl+C here to stop.", flush=True)
+    if ready:
+        ready()
     def interrupt(signum, frame):
         raise KeyboardInterrupt
-    # A closed terminal (SIGHUP) or a plain kill (SIGTERM) takes the same cleanup path.
-    for number in (signal.SIGTERM, signal.SIGHUP):
+    # Ctrl+C, a closed terminal (SIGHUP) and a plain kill (SIGTERM) take one cleanup
+    # path; SIGINT is set explicitly because a shell may start jobs with it ignored.
+    for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(number, interrupt)
     try:
         server.serve_forever()

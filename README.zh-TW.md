@@ -13,10 +13,28 @@
 SplatRig 的目標是 GoPro MAX2 + Livox MID-360 手持掃描設備：邊走邊顯示點雲
 與相機軌跡，再將影像與幾何精確配對，交給桌面 3DGS 訓練器。
 
-**目前階段：本機基礎版本。** 已可執行合成資料重播、時鐘擬合、位姿配對、
-equirectangular 轉 PINHOLE 視角與 COLMAP 種子模型匯出。已提供 ROS 2 里程計
-記錄器，但尚未與實體感測器測試。MAX2 擷取、原始 .360 解碼、完整 SLAM 串接及
-室內外驗證為後續工作。
+**目前階段：第一版硬體版本。** 即時介面可顯示 Mid-360S 點雲、MAX2 預覽，以及即時
+GLIM 路線與地圖，並同時錄製兩個裝置。錄好的資料可完整處理（.360 解碼、GLIM 軌跡、
+相機安裝的陀螺儀校正、PINHOLE 視角、COLMAP 種子模型）成資料集，但仍標示為暫定：
+相機平移量仍為手動輸入，精度尚未量測。接下來是室內外驗證與 3DGS 訓練。
+
+## 啟動即時擷取
+
+在擷取用電腦上（Ubuntu 24.04，已安裝 ROS 2 Jazzy、Livox driver 與 GLIM；
+見[硬體文件](docs/HARDWARE.zh-TW.md#一鍵啟動)）：
+
+```sh
+tools/splatrig-ros start
+```
+
+它會檢查電腦狀態、在 driver 尚未執行時啟動 Livox driver、啟動含即時 GLIM 的介面，
+並開啟 http://127.0.0.1:8090/?view=map。按 Ctrl+C 會停止它啟動的所有程式。
+`tools/splatrig-ros doctor` 只列出缺少的項目與修正指令。一次性設定：
+
+```sh
+sudo tools/install-ptp-service <lidar-nic>   # LiDAR 時間同步改為系統服務；網卡名稱見 doctor
+tools/splatrig-app --install                 # 在應用程式選單加入「SplatRig」
+```
 
 ## 不需要硬體的示範
 
@@ -95,7 +113,9 @@ splatrig demo --panorama --output runs/panorama          # 合成 360 輸入
 splatrig panorama-views runs/panorama --output runs/views  # 需要 ffmpeg
 splatrig import-livox <bag> --output runs/lidar            # 需要 ROS 2 與 Livox 驅動
 splatrig live                                              # 本機介面，http://127.0.0.1:8090/
-tools/splatrig-ros live --slam --calibration <calibration.json>   # 加上即時 GLIM 路線與地圖
+tools/splatrig-ros start                                   # 檢查 + driver + 介面 + GLIM
+tools/splatrig-ros doctor                                  # 列出這台電腦缺少的項目
+tools/splatrig-ros live --slam --calibration <calibration.json>   # 只啟動介面（driver 已在執行）
 splatrig glim-bag <bag> --output runs/glim                 # 供 GLIM 使用的 PointCloud2 副本
 tools/splatrig-ros calibrate-gyro <rotation capture> --output runs/mount-calibration
 tools/splatrig-ros process-capture <capture> --output <run> --calibration runs/mount-calibration/calibration.json

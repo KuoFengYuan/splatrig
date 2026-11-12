@@ -6,6 +6,8 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from types import SimpleNamespace as NS
 import unittest
 
@@ -93,8 +95,12 @@ class OrphanTests(unittest.TestCase):
                 (folder / OWNER_FILE).write_text(str(owner))
             (root / (LIVE_PREFIX + "legacy")).mkdir()  # no owner file: never touched
             left, kept = self.spawn(orphan), self.spawn(owned)
+            # Reap the orphan as its real parent would; this test's child stays a zombie otherwise.
+            threading.Thread(target=left.wait, daemon=True).start()
             try:
+                started = time.monotonic()
                 self.assertEqual(reap_orphans(root, timeout=5), [left.pid])
+                self.assertLess(time.monotonic() - started, 4)
                 self.assertIsNotNone(left.wait(5))
                 self.assertIsNone(kept.poll())
                 self.assertFalse(orphan.exists())
