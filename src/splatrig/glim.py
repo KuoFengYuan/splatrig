@@ -113,7 +113,11 @@ def write_glim_config(destination: Path, *, source: Path = GLIM_CONFIG, gpu=Fals
                                  (r'"points_topic": "[^"]*"', f'"points_topic": "{points_topic}"'),
                                  (r'"extension_modules": \[[^\]]*\]',
                                   '"extension_modules": ["libmemory_monitor.so"' +
-                                  (', "librviz_viewer.so"' if publish else "") + "]")],
+                                  (', "librviz_viewer.so"' if publish else "") + "]"),
+                                 # Livox stamps points and IMU with one frame, so GLIM's
+                                 # imu -> lidar TF would link that frame to itself.
+                                 (r'"publish_imu2lidar": (?:true|false)',
+                                  '"publish_imu2lidar": false')],
              "config_sensors.json": [(r'"T_lidar_imu": \[[^\]]*\]',
                                       '"T_lidar_imu": [' +
                                       ", ".join(format(v, "g") for v in t_lidar_imu) + "]")]}

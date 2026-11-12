@@ -66,20 +66,24 @@ class GlimTests(unittest.TestCase):
                 ' "config_global_mapping": "config_global_mapping_gpu.json"}}')
             (source / "config_ros.json").write_text(
                 '{"glim_ros": {"acc_scale": 0.0, // auto\n "extension_modules": ["a.so",\n "b.so"],'
-                ' "imu_topic": "/os/imu", "points_topic": "/os/points"}}')
+                ' "imu_topic": "/os/imu", "points_topic": "/os/points", "publish_imu2lidar": true}}')
             (source / "config_sensors.json").write_text('{"sensors": {"T_lidar_imu": [1, 2,\n 3, 0, 0, 0, 1]}}')
             write_glim_config(base / "out", source=source)
             out = base / "out"
             self.assertIn('"config_odometry": "config_odometry_cpu.json"', (out / "config.json").read_text())
             ros = (out / "config_ros.json").read_text()
             for text in ['"acc_scale": 9.80665,', '"imu_topic": "/livox/imu"',
-                         '"points_topic": "/livox/points"', '"extension_modules": ["libmemory_monitor.so"]']:
+                         '"points_topic": "/livox/points"', '"extension_modules": ["libmemory_monitor.so"]',
+                         '"publish_imu2lidar": false']:
                 self.assertIn(text, ros)
             self.assertIn('"T_lidar_imu": [0.011, 0.02329, -0.04412, 0, 0, 0, 1]',
                           (out / "config_sensors.json").read_text())
             self.assertEqual((source / "config_ros.json").read_text().count("/os/imu"), 1)
             write_glim_config(base / "gpu", source=source, gpu=True)
             self.assertIn("config_global_mapping_gpu.json", (base / "gpu/config.json").read_text())
+            write_glim_config(base / "live", source=source, publish=True)
+            self.assertIn('"libmemory_monitor.so", "librviz_viewer.so"]',
+                          (base / "live/config_ros.json").read_text())
             (source / "config_sensors.json").write_text('{"sensors": {}}')
             with self.assertRaisesRegex(ValueError, "setting not found"):
                 write_glim_config(base / "bad", source=source)

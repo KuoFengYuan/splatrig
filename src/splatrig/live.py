@@ -275,6 +275,14 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
         def log_message(self, *args):
             pass
 
+        def handle(self):
+            # A reload or closed tab drops the socket mid-response; that is not
+            # a server fault and must not print a traceback for every request.
+            try:
+                super().handle()
+            except (BrokenPipeError, ConnectionResetError):
+                self.close_connection = True
+
         def send(self, code, body: bytes, kind="application/json"):
             self.send_response(code)
             self.send_header("Content-Type", kind)

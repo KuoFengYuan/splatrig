@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: MIT
+import contextlib
+import http.client
 from http.server import ThreadingHTTPServer
+import io
 import json
 from pathlib import Path
 import struct
@@ -115,6 +118,27 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.request("/api/status?nocache=1")[0], 200)
         code, cloud = self.request("/api/points?t=2")
         self.assertEqual(code, 200)
+
+    def test_client_disconnect_is_quiet(self):
+        base = make_handler(self.lidar, self.camera, self.recorder)
+
+        class Dropped(base):
+            def do_GET(self):
+                raise BrokenPipeError(32, "Broken pipe")
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Dropped)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        errors = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(errors):
+                with self.assertRaises((urllib.error.URLError, ConnectionError,
+                                        http.client.HTTPException)):
+                    urllib.request.urlopen(
+                        f"http://127.0.0.1:{server.server_address[1]}/api/status", timeout=10)
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(errors.getvalue(), "")
 
     def test_post_requires_header_and_camera(self):
         self.assertEqual(self.request("/api/record/start", "POST", header=False)[0], 403)
