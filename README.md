@@ -21,24 +21,53 @@ calibration of the camera mount, PINHOLE views, COLMAP seed) into a dataset that
 stays marked provisional: the camera translation is still entered by hand and
 accuracy is not yet measured. Indoor/outdoor validation and 3DGS training are next.
 
-## Start a live capture
+## Deploy and start
 
-On the capture machine (Ubuntu 24.04 with ROS 2 Jazzy, the Livox driver and GLIM;
-see [hardware](docs/HARDWARE.md#one-command-start)):
+Capture machine: Ubuntu 24.04, the Mid-360S on a USB/Ethernet NIC, the MAX2 over
+USB. Run builds outside conda (`conda deactivate`). Details: [hardware](docs/HARDWARE.md).
 
-```sh
-tools/splatrig-ros start
-```
+1. **ROS 2 Jazzy** ([official guide](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html)),
+   then `sudo apt install -y ros-jazzy-desktop ros-dev-tools linuxptp ffmpeg`.
+2. **Livox SDK2 and driver**
 
-It checks the machine, starts the Livox driver unless one is running, starts the
-console with live GLIM and opens http://127.0.0.1:8090/?view=map. Ctrl+C stops
-everything it started. `tools/splatrig-ros doctor` only reports what is missing,
-with the command that fixes it. One-time setup:
+   ```sh
+   git clone https://github.com/Livox-SDK/Livox-SDK2.git ~/Livox-SDK2
+   cd ~/Livox-SDK2 && mkdir build && cd build && cmake .. -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+   make -j"$(nproc)" && sudo make install && sudo ldconfig
+   mkdir -p ~/ws_livox/src && git clone https://github.com/Livox-SDK/livox_ros_driver2.git ~/ws_livox/src/livox_ros_driver2
+   ```
 
-```sh
-sudo tools/install-ptp-service <lidar-nic>   # LiDAR time sync as a service; doctor prints the NIC
-tools/splatrig-app --install                 # "SplatRig" in the application menu
-```
+   In `config/MID360s_config.json` set every `host_ip` to `192.168.1.50` and the
+   LiDAR `ip` to `192.168.1.1XX` (last two serial digits), then
+   `source /opt/ros/jazzy/setup.bash && cd ~/ws_livox/src/livox_ros_driver2 && ./build.sh jazzy`.
+3. **GLIM** (CPU build from the author's PPA)
+
+   ```sh
+   curl -s --compressed https://koide3.github.io/ppa/ubuntu2404/KEY.gpg | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/koide3_ppa.gpg >/dev/null
+   echo "deb [signed-by=/etc/apt/trusted.gpg.d/koide3_ppa.gpg] https://koide3.github.io/ppa/ubuntu2404 ./" | sudo tee /etc/apt/sources.list.d/koide3_ppa.list
+   sudo apt update && sudo apt install -y libiridescence-dev libboost-all-dev libglfw3-dev libmetis-dev libgtsam-points-dev ros-jazzy-glim-ros
+   ```
+
+4. **Network** (NIC names from `ip -br link`)
+
+   ```sh
+   sudo nmcli con add type ethernet ifname <lidar-nic> con-name livox ipv4.method manual \
+     ipv4.addresses 192.168.1.50/24 ipv4.never-default yes ipv6.method disabled
+   sudo nmcli con add type ethernet ifname <gopro-nic> con-name gopro ipv4.method auto \
+     ipv4.never-default yes ipv6.method disabled
+   ```
+
+5. **This repository and one-time setup**
+
+   ```sh
+   git clone <repository-url> splatrig && cd splatrig
+   sudo tools/install-ptp-service <lidar-nic>   # LiDAR time sync as a service
+   tools/splatrig-app --install                 # "SplatRig" in the application menu
+   ```
+
+6. **Check and start**: `tools/splatrig-ros doctor` lists anything missing with its
+   fix; `tools/splatrig-ros start` (or the menu entry) starts the driver, console
+   and live GLIM and opens http://127.0.0.1:8090/?view=map. Ctrl+C stops it all.
 
 ## Try it without hardware
 

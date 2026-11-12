@@ -18,23 +18,53 @@ GLIM 路線與地圖，並同時錄製兩個裝置。錄好的資料可完整處
 相機安裝的陀螺儀校正、PINHOLE 視角、COLMAP 種子模型）成資料集，但仍標示為暫定：
 相機平移量仍為手動輸入，精度尚未量測。接下來是室內外驗證與 3DGS 訓練。
 
-## 啟動即時擷取
+## 部署與啟動
 
-在擷取用電腦上（Ubuntu 24.04，已安裝 ROS 2 Jazzy、Livox driver 與 GLIM；
-見[硬體文件](docs/HARDWARE.zh-TW.md#一鍵啟動)）：
+擷取用電腦：Ubuntu 24.04，Mid-360S 接 USB 網卡，MAX2 接 USB。編譯時請先離開 conda
+（`conda deactivate`）。細節見[硬體文件](docs/HARDWARE.zh-TW.md)。
 
-```sh
-tools/splatrig-ros start
-```
+1. **ROS 2 Jazzy**（[官方安裝說明](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html)），
+   再執行 `sudo apt install -y ros-jazzy-desktop ros-dev-tools linuxptp ffmpeg`。
+2. **Livox SDK2 與 driver**
 
-它會檢查電腦狀態、在 driver 尚未執行時啟動 Livox driver、啟動含即時 GLIM 的介面，
-並開啟 http://127.0.0.1:8090/?view=map。按 Ctrl+C 會停止它啟動的所有程式。
-`tools/splatrig-ros doctor` 只列出缺少的項目與修正指令。一次性設定：
+   ```sh
+   git clone https://github.com/Livox-SDK/Livox-SDK2.git ~/Livox-SDK2
+   cd ~/Livox-SDK2 && mkdir build && cd build && cmake .. -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+   make -j"$(nproc)" && sudo make install && sudo ldconfig
+   mkdir -p ~/ws_livox/src && git clone https://github.com/Livox-SDK/livox_ros_driver2.git ~/ws_livox/src/livox_ros_driver2
+   ```
 
-```sh
-sudo tools/install-ptp-service <lidar-nic>   # LiDAR 時間同步改為系統服務；網卡名稱見 doctor
-tools/splatrig-app --install                 # 在應用程式選單加入「SplatRig」
-```
+   在 `config/MID360s_config.json` 把所有 `host_ip` 設為 `192.168.1.50`、LiDAR 的 `ip`
+   設為 `192.168.1.1XX`（序號末兩碼），再執行
+   `source /opt/ros/jazzy/setup.bash && cd ~/ws_livox/src/livox_ros_driver2 && ./build.sh jazzy`。
+3. **GLIM**（作者 PPA 的 CPU 版）
+
+   ```sh
+   curl -s --compressed https://koide3.github.io/ppa/ubuntu2404/KEY.gpg | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/koide3_ppa.gpg >/dev/null
+   echo "deb [signed-by=/etc/apt/trusted.gpg.d/koide3_ppa.gpg] https://koide3.github.io/ppa/ubuntu2404 ./" | sudo tee /etc/apt/sources.list.d/koide3_ppa.list
+   sudo apt update && sudo apt install -y libiridescence-dev libboost-all-dev libglfw3-dev libmetis-dev libgtsam-points-dev ros-jazzy-glim-ros
+   ```
+
+4. **網路**（網卡名稱用 `ip -br link` 查）
+
+   ```sh
+   sudo nmcli con add type ethernet ifname <lidar-nic> con-name livox ipv4.method manual \
+     ipv4.addresses 192.168.1.50/24 ipv4.never-default yes ipv6.method disabled
+   sudo nmcli con add type ethernet ifname <gopro-nic> con-name gopro ipv4.method auto \
+     ipv4.never-default yes ipv6.method disabled
+   ```
+
+5. **本專案與一次性設定**
+
+   ```sh
+   git clone <repository-url> splatrig && cd splatrig
+   sudo tools/install-ptp-service <lidar-nic>   # LiDAR 時間同步改為系統服務
+   tools/splatrig-app --install                 # 在應用程式選單加入「SplatRig」
+   ```
+
+6. **檢查與啟動**：`tools/splatrig-ros doctor` 會列出缺少的項目與修正方法；
+   `tools/splatrig-ros start`（或選單中的 SplatRig）會啟動 driver、介面與即時 GLIM，
+   並開啟 http://127.0.0.1:8090/?view=map。按 Ctrl+C 全部停止。
 
 ## 不需要硬體的示範
 
