@@ -58,7 +58,7 @@ Ubuntu 24.04。編譯前先 `conda deactivate`。
 5. 下載本專案，設定 PTP 服務與選單捷徑：
 
    ```sh
-   git clone <repository-url> splatrig && cd splatrig
+   git clone https://github.com/KuoFengYuan/splatrig.git && cd splatrig
    sudo tools/install-ptp-service <lidar-nic>
    tools/splatrig-app --install
    ```

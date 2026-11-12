@@ -59,7 +59,7 @@ Ubuntu 24.04. Run `conda deactivate` before building.
 5. Get this repository, set up the PTP service and the menu entry:
 
    ```sh
-   git clone <repository-url> splatrig && cd splatrig
+   git clone https://github.com/KuoFengYuan/splatrig.git && cd splatrig
    sudo tools/install-ptp-service <lidar-nic>
    tools/splatrig-app --install
    ```
