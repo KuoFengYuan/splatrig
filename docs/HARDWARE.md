@@ -199,6 +199,15 @@ tools/splatrig-ros live            # --gopro none for LiDAR only
   is a preview; datasets still come from the offline run of the recorded bag.
   Replaying the 27 s rotation bag in an isolated domain gave 10 Hz odometry and a
   23k-voxel map with no dropped voxels.
+- In the Map view the pose is polled every 0.1 s and GLIM's newest scan ("Live
+  scan", cyan) every 0.2 s; the map and route refresh every second.
+- GLIM runs in its own session, so a console that dies without its cleanup leaves
+  it running, and a second GLIM then writes another world frame into the same map
+  (doubled, thick walls and a tangled route). The console stops GLIM on Ctrl+C,
+  SIGTERM and SIGHUP, each shutdown step running even if an earlier one fails;
+  every live folder records its owner PID, and a new console stops GLIM left by a
+  console that no longer exists. More than one odometry publisher turns the SLAM
+  chip red. Verified by killing a console with SIGKILL and starting another one.
 - `splatrig ros-pointcloud` republishes CustomMsg as PointCloud2 for RViz2/Foxglove
   (no per-point time).
 

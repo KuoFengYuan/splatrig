@@ -16,6 +16,7 @@ from pathlib import Path
 import signal
 import struct
 import subprocess
+import sys
 import threading
 import time
 
@@ -164,7 +165,7 @@ class Camera:
         for action in (self.stop_preview, self.gopro.release):
             try:
                 action()
-            except ValueError:
+            except (ValueError, OSError):  # camera unplugged or not answering
                 pass
         self.claimed = False
 
@@ -314,6 +315,10 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
                 self.send(200, slam.map_payload(), "application/octet-stream")
             elif path == "/api/route" and slam is not None:
                 self.send(200, slam.route_payload(), "application/octet-stream")
+            elif path == "/api/slam/pose" and slam is not None:
+                self.send_json(200, slam.pose_status())
+            elif path == "/api/slam/scan" and slam is not None:
+                self.send(200, slam.scan_payload(), "application/octet-stream")
             elif path == "/api/points":
                 self.send(200, lidar.cloud(), "application/octet-stream")
             elif path == "/api/preview.mjpg":
@@ -406,6 +411,11 @@ def start_ros(lidar: LidarState, lidar_topic: str, imu_topic: str,
         node.create_subscription(Odometry, "/glim_ros/odom_corrected", odometry, 10)
         node.create_subscription(PointCloud2, "/glim_ros/aligned_points_corrected",
                                  lambda message: slam.add_scan(cloud_points(message)), 10)
+
+        def count_publishers():
+            # More than one means another GLIM writes into the same live map.
+            slam.publishers = node.count_publishers("/glim_ros/odom_corrected")
+        node.create_timer(2.0, count_publishers)
     node.create_subscription(CustomMsg, lidar_topic, receive, qos_profile_sensor_data)
     # A LiDAR callback takes tens of ms; a deep IMU queue keeps 200 Hz samples
     # from being discarded while it runs.
@@ -450,6 +460,9 @@ def serve(port: int, captures: Path, gopro_host: str | None, lidar_topic: str,
     slam = SlamState(camera=camera_mount(calibration, camera_offset)) if live_slam else None
     stop_ros = start_ros(lidar, lidar_topic, imu_topic, slam)
     glim = GlimProcess() if live_slam else None
+    if glim and glim.reaped:
+        print(f"Stopped GLIM left by an earlier console (PID {', '.join(map(str, glim.reaped))})",
+              flush=True)
     server = ThreadingHTTPServer(("127.0.0.1", port),
                                  make_handler(lidar, camera, recorder, slam, glim))
     server.daemon_threads = True
@@ -460,18 +473,33 @@ def serve(port: int, captures: Path, gopro_host: str | None, lidar_topic: str,
             camera.error = str(error)
     print(f"SplatRig live console: http://127.0.0.1:{port}/  (GoPro: {gopro_host or 'none'})",
           flush=True)
+    def interrupt(signum, frame):
+        raise KeyboardInterrupt
+    # A closed terminal (SIGHUP) or a plain kill (SIGTERM) takes the same cleanup path.
+    for number in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(number, interrupt)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
-        server.server_close()
-        if recorder.process:
+        def patience(signum, frame):
             try:
-                recorder.stop()
-            except ValueError:
+                print("Still stopping; GLIM may take a few seconds", flush=True)
+            except OSError:
                 pass
-        camera.close()
-        if glim:
-            glim.stop()
-        stop_ros()
+        for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            signal.signal(number, patience)
+        print("Stopping the console", flush=True)
+        # Each step runs even if an earlier one fails, so GLIM is never left behind.
+        steps = [("web server", server.server_close),
+                 ("recording", recorder.stop if recorder.process else None),
+                 ("GLIM", glim.stop if glim else None),
+                 ("camera", camera.close), ("ROS", stop_ros)]
+        for name, step in steps:
+            if step is None:
+                continue
+            try:
+                step()
+            except Exception as error:  # report and continue with the next step
+                print(f"Could not stop the {name} cleanly: {error}", file=sys.stderr, flush=True)

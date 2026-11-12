@@ -86,6 +86,7 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
         </select>
       </label>
       <label id="ceiling-label" hidden><input id="ceiling" type="checkbox" checked> Hide ceiling</label>
+      <label id="live-label" hidden><input id="live" type="checkbox" checked> Live scan</label>
       <button id="reset" type="button">Reset view</button>
     </div>
     <div class="view">
@@ -140,8 +141,8 @@ const loc = {a: gl.getAttribLocation(prog, "a"), m: gl.getUniformLocation(prog, 
   mode: gl.getUniformLocation(prog, "mode"), u: gl.getUniformLocation(prog, "u"),
   solid: gl.getUniformLocation(prog, "solid"), zmax: gl.getUniformLocation(prog, "zmax")};
 const cloudBuf = gl.createBuffer(), gridBuf = gl.createBuffer(), mapBuf = gl.createBuffer(),
-  routeBuf = gl.createBuffer(), markBuf = gl.createBuffer();
-let cloudCount = 0, mapCount = 0, routeCount = 0, markCount = 0, viewMode = "scan";
+  routeBuf = gl.createBuffer(), markBuf = gl.createBuffer(), scanBuf = gl.createBuffer();
+let cloudCount = 0, mapCount = 0, routeCount = 0, markCount = 0, scanCount = 0, viewMode = "scan";
 const target = [0, 0, 0];
 const grid = [];
 for (let r = 5; r <= 30; r += 5) for (let i = 0; i < 64; i++) {
@@ -183,12 +184,15 @@ function draw() {
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.vertexAttribPointer(loc.a, stride / 4 === 3 ? 3 : 4, gl.FLOAT, false, stride, 0);
     gl.uniform1f(loc.u, 0); gl.uniform3fv(loc.solid, color); gl.drawArrays(kind, 0, count); };
   lines(gridBuf, grid.length / 4, [.35, .4, .48], 16, gl.LINES);
-  const points = (buffer, count) => { if (!count) return;
+  const points = (buffer, count, color) => { if (!count) return;
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.vertexAttribPointer(loc.a, 4, gl.FLOAT, false, 16, 0);
-    gl.uniform1f(loc.u, 1); gl.uniform1f(loc.s, (map ? 1.5 : 2) * dpr); gl.uniform1i(loc.mode, +$("color").value);
+    gl.uniform1f(loc.u, color ? 0 : 1); if (color) gl.uniform3fv(loc.solid, color);
+    gl.uniform1f(loc.s, (color ? 2.5 : map ? 1.5 : 2) * dpr); gl.uniform1i(loc.mode, +$("color").value);
     gl.drawArrays(gl.POINTS, 0, count); };
   if (map) {
     points(mapBuf, mapCount);
+    // The newest scan overlaps map points at the same places; draw it on top.
+    if ($("live").checked) { gl.disable(gl.DEPTH_TEST); points(scanBuf, scanCount, [.2, .95, 1]); gl.enable(gl.DEPTH_TEST); }
     lines(routeBuf, routeCount, [1, .85, .2], 12, gl.LINE_STRIP);
     for (const [first, color] of [[0, [1, .3, .3]], [2, [.3, 1, .3]], [4, [.3, .5, 1]], [6, [1, .2, 1]]])
       if (markCount > first) { gl.bindBuffer(gl.ARRAY_BUFFER, markBuf); gl.vertexAttribPointer(loc.a, 3, gl.FLOAT, false, 12, 0);
@@ -250,10 +254,30 @@ async function mapData() {
     const mn = new DataView(m).getUint32(0, true), rn = new DataView(r).getUint32(0, true);
     gl.bindBuffer(gl.ARRAY_BUFFER, mapBuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(m, 4, mn * 4), gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, routeBuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(r, 4, rn * 3), gl.DYNAMIC_DRAW);
-    mapCount = mn; routeCount = rn; $("count").textContent = `${mn.toLocaleString()} map voxels · route ${rn} pts`; redraw();
+    mapCount = mn; routeCount = rn; mapCounts(); redraw();
   } catch (e) { /* server restarting */ } finally { mapFetching = false; }
 }
 setInterval(mapData, 1000);
+const mapCounts = () => { $("count").textContent = `${mapCount.toLocaleString()} map voxels · ` +
+  ($("live").checked ? `live scan ${scanCount.toLocaleString()} pts · ` : "") + `route ${routeCount} pts`; };
+// The pose and GLIM's newest scan change at 10 Hz; poll them faster than the map.
+let poseFetching = false, scanFetching = false;
+async function poseData() {
+  if (viewMode !== "map" || poseFetching) return; poseFetching = true;
+  try { const p = await (await fetch("/api/slam/pose", {cache: "no-store"})).json(); if (p.pose) setMarker(p.pose, p.camera); }
+  catch (e) { /* server restarting */ } finally { poseFetching = false; }
+}
+async function scanData() {
+  if (viewMode !== "map" || !$("live").checked || scanFetching) return; scanFetching = true;
+  try {
+    const buf = await (await fetch("/api/slam/scan", {cache: "no-store"})).arrayBuffer();
+    const n = new DataView(buf).getUint32(0, true);
+    gl.bindBuffer(gl.ARRAY_BUFFER, scanBuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(buf, 4, n * 4), gl.DYNAMIC_DRAW);
+    scanCount = n; mapCounts(); redraw();
+  } catch (e) { /* server restarting */ } finally { scanFetching = false; }
+}
+setInterval(poseData, 100);
+setInterval(scanData, 200);
 function rotateQ(q, v) { const [w, x, y, z] = q, [a, b, c] = v;
   const tx = 2 * (y * c - z * b), ty = 2 * (z * a - x * c), tz = 2 * (x * b - y * a);
   return [a + w * tx + y * tz - z * ty, b + w * ty + z * tx - x * tz, c + w * tz + x * ty - y * tx]; }
@@ -265,9 +289,11 @@ function setMarker(pose, camera) {
   markCount = v.length / 3; target[0] = p[0]; target[1] = p[1]; target[2] = p[2]; redraw();
 }
 $("ceiling").addEventListener("change", redraw);
-$("mode").addEventListener("change", () => { viewMode = $("mode").value; $("ceiling-label").hidden = viewMode !== "map";
+$("live").addEventListener("change", () => { mapCounts(); redraw(); });
+$("mode").addEventListener("change", () => { viewMode = $("mode").value;
+  $("ceiling-label").hidden = $("live-label").hidden = viewMode !== "map";
   $("view-title").textContent = viewMode === "map" ? "SLAM map preview (world frame, not loop-corrected)" : "LiDAR scan (last 1 s, sensor frame)";
-  if (viewMode === "map") mapData(); else points(); redraw(); });
+  if (viewMode === "map") { mapData(); poseData(); scanData(); } else points(); redraw(); });
 
 function chip(id, level, text) { const c = $(id); c.className = "chip " + level; c.lastElementChild.textContent = text; }
 let previewing = false;
@@ -301,10 +327,10 @@ async function status() {
   $("mode").options[1].disabled = !S.enabled;
   if (!S.enabled) chip("c-slam", "", "SLAM off");
   else if (!S.running) chip("c-slam", "bad", "SLAM stopped");
+  else if (S.odom_publishers > 1) chip("c-slam", "bad", `${S.odom_publishers} GLIM running — stop the extra one`);
   else if (S.odom_age_s === null) chip("c-slam", "warn", "SLAM initializing");
   else if (S.odom_age_s > 1) chip("c-slam", "warn", `SLAM no update ${S.odom_age_s.toFixed(0)} s`);
   else chip("c-slam", "ok", `SLAM ${S.odom_hz.toFixed(0)} Hz · ${(S.map_voxels / 1000).toFixed(0)}k voxels`);
-  if (S.enabled && S.pose) setMarker(S.pose, S.camera);
   if (S.enabled && wantMap) { wantMap = false; $("mode").value = "map"; $("mode").dispatchEvent(new Event("change")); }
   $("pv").disabled = !C.configured;
   setPreview(!!C.previewing);

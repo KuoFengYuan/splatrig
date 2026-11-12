@@ -1,14 +1,18 @@
 # SPDX-License-Identifier: MIT
 import json
 from pathlib import Path
+import os
 import struct
+import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace as NS
 import unittest
 
 from splatrig.geometry import Pose, rotate
 from splatrig.live import camera_mount
-from splatrig.liveslam import MAP_POINT, SlamState, cloud_points
+from splatrig.liveslam import (LIVE_PREFIX, MAP_POINT, OWNER_FILE, SlamState, cloud_points,
+                               reap_orphans)
 
 
 def field(name, offset):
@@ -42,6 +46,9 @@ class SlamStateTests(unittest.TestCase):
         first = list(MAP_POINT.iter_unpack(payload[4:]))[0]  # float32 storage
         self.assertTrue(all(abs(a - b) < 1e-6 for a, b in zip(first, (0.01, 0, 0, 1))))
         self.assertEqual(struct.unpack_from("<I", state.map_payload(max_points=2))[0], 2)
+        scan = state.scan_payload()  # every point of the newest scan, budget or not
+        self.assertEqual(struct.unpack_from("<I", scan)[0], 5)
+        self.assertEqual(len(scan), 4 + 5 * MAP_POINT.size)
         for i, x in enumerate([0, 0.01, 0.05, 0.051, 0.2]):
             state.add_odometry((x, 0, 0), (1, 0, 0, 0), received=10 + i * 0.1)
         route = state.route_payload()
@@ -50,6 +57,8 @@ class SlamStateTests(unittest.TestCase):
         self.assertAlmostEqual(status["odom_hz"], 10.0)
         self.assertEqual(status["pose"]["translation"], [0.2, 0.0, 0.0])
         self.assertNotIn("camera", status)
+        self.assertIsNone(status["odom_publishers"])
+        self.assertEqual(state.pose_status(now=10.5), {"odom_age_s": 0.1, "pose": status["pose"]})
 
     def test_camera_pose_from_calibration(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -65,6 +74,35 @@ class SlamStateTests(unittest.TestCase):
         expected = (1 - 0.011, 2 - 0.02329, 0.04412 + 0.083)
         self.assertTrue(all(abs(a - b) < 1e-9 for a, b in zip(camera.translation, expected)))
         self.assertIsNone(camera_mount(None))
+
+
+class OrphanTests(unittest.TestCase):
+    def spawn(self, folder):
+        # Same shape as a live GLIM: its own session, config path on the command line.
+        return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)",
+                                 str(folder / "config")], start_new_session=True)
+
+    def test_stops_glim_of_dead_owner_only(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dead = subprocess.Popen([sys.executable, "-c", "pass"])
+            dead.wait()
+            orphan, owned = root / (LIVE_PREFIX + "orphan"), root / (LIVE_PREFIX + "owned")
+            for folder, owner in ((orphan, dead.pid), (owned, os.getpid())):
+                folder.mkdir()
+                (folder / OWNER_FILE).write_text(str(owner))
+            (root / (LIVE_PREFIX + "legacy")).mkdir()  # no owner file: never touched
+            left, kept = self.spawn(orphan), self.spawn(owned)
+            try:
+                self.assertEqual(reap_orphans(root, timeout=5), [left.pid])
+                self.assertIsNotNone(left.wait(5))
+                self.assertIsNone(kept.poll())
+                self.assertFalse(orphan.exists())
+                self.assertTrue(owned.exists() and (root / (LIVE_PREFIX + "legacy")).exists())
+            finally:
+                for process in (left, kept):
+                    process.kill()
+                    process.wait()
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ import urllib.request
 
 from splatrig.gopro import find_camera, split_jpegs
 from splatrig.live import Camera, LidarState, Recorder, make_handler
+from splatrig.liveslam import SlamState
 from test_livox import driver_frames
 
 FAKE_BAG = [sys.executable, "-c",
@@ -110,7 +111,8 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(status["lidar"]["clock"], "ptp_inferred")
         self.assertEqual(status["camera"], {"configured": False})
         self.assertEqual(status["slam"], {"enabled": False})
-        self.assertEqual(self.request("/api/map")[0], 404)
+        for path in ("/api/map", "/api/route", "/api/slam/pose", "/api/slam/scan"):
+            self.assertEqual(self.request(path)[0], 404)
         self.assertFalse(status["record"]["recording"])
         code, cloud = self.request("/api/points")
         self.assertEqual(len(cloud), 4 + 16 * struct.unpack_from("<I", cloud)[0])
@@ -118,6 +120,30 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.request("/api/status?nocache=1")[0], 200)
         code, cloud = self.request("/api/points?t=2")
         self.assertEqual(code, 200)
+
+    def test_slam_endpoints(self):
+        slam = SlamState()
+        slam.add_scan([(1, 2, 3, 4), (1.01, 2, 3, 5)])
+        slam.add_odometry((0.5, 0, 0), (1, 0, 0, 0))
+        server = ThreadingHTTPServer(("127.0.0.1", 0),
+                                     make_handler(self.lidar, self.camera, self.recorder, slam))
+        server.daemon_threads = True
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        base, self.base = self.base, f"http://127.0.0.1:{server.server_address[1]}"
+        try:
+            status = json.loads(self.request("/api/status")[1])["slam"]
+            self.assertEqual((status["enabled"], status["running"], status["map_voxels"]),
+                             (True, False, 1))
+            pose = json.loads(self.request("/api/slam/pose")[1])
+            self.assertEqual(pose["pose"]["translation"], [0.5, 0.0, 0.0])
+            scan = self.request("/api/slam/scan")[1]
+            self.assertEqual(struct.unpack_from("<I", scan)[0], 2)
+            self.assertEqual(struct.unpack_from("<I", self.request("/api/map")[1])[0], 1)
+            self.assertEqual(struct.unpack_from("<I", self.request("/api/route")[1])[0], 1)
+        finally:
+            self.base = base
+            server.shutdown()
+            server.server_close()
 
     def test_client_disconnect_is_quiet(self):
         base = make_handler(self.lidar, self.camera, self.recorder)

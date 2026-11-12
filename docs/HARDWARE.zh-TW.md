@@ -170,6 +170,13 @@ tools/splatrig-ros live            # 只用 LiDAR 時加 --gopro none
   `?view=map` 直接開啟 Map 視角；「Hide ceiling」隱藏高於目前位姿 1 m 以上的點。
   即時地圖不會因之後的閉環而移動，僅供預覽；資料集仍由錄製 bag 的離線處理產生。
   在獨立 domain 中重播 27 秒旋轉 bag：里程計 10 Hz、地圖 23k 體素且無丟棄。
+- Map 視角每 0.1 秒更新位姿、每 0.2 秒更新 GLIM 最新一幀掃描（「Live scan」，青色），
+  地圖與路線每秒更新。
+- GLIM 在獨立的 session 中執行，介面若未完成清理就結束，GLIM 會繼續執行；之後再啟動的
+  GLIM 會把另一個世界座標系寫進同一張地圖（牆面變兩層、變厚，路線糾結）。介面在 Ctrl+C、
+  SIGTERM 與 SIGHUP 時都會停止 GLIM，且每個關閉步驟即使前一步失敗也會執行；每個即時資料夾
+  記錄擁有者 PID，新的介面會停止已不存在之介面留下的 GLIM。里程計發布者超過一個時，
+  SLAM 狀態燈會變紅。已用 SIGKILL 結束介面後再啟動另一個介面驗證。
 - `splatrig ros-pointcloud` 將 CustomMsg 轉為 PointCloud2 供 RViz2／Foxglove 使用
   （不含逐點時間）。
 

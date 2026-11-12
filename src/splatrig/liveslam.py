@@ -6,6 +6,11 @@ glim_rosnode, and accumulates GLIM's corrected per-scan clouds into a voxel map
 that keeps the first point of each voxel. The live map is a preview: earlier
 voxels are not moved by later loop closures, so final data comes from the
 offline run of the recorded bag.
+
+A console that dies without its cleanup (a second Ctrl+C, a closed terminal, a
+crash) leaves glim_rosnode running in its own session, and a second GLIM then
+publishes into the same topics. Each live folder therefore records its owner,
+and a new console stops GLIM processes whose owner is gone.
 """
 
 from __future__ import annotations
@@ -26,6 +31,8 @@ from .geometry import Pose
 
 MAP_POINT = struct.Struct("<ffff")
 GLIM_POINTS_TOPIC = "/splatrig/glim_points"
+LIVE_PREFIX = "splatrig-glim-live-"
+OWNER_FILE = "owner.pid"
 
 
 def cloud_points(message):
@@ -63,6 +70,8 @@ class SlamState:
         self.pose = None
         self.odom_times = deque(maxlen=50)
         self.scans = 0
+        self.latest = b""  # newest GLIM scan, map frame, MAP_POINT records
+        self.publishers = None  # odometry publishers seen by ROS discovery
 
     def add_odometry(self, position, quaternion_wxyz, received=None):
         with self.lock:
@@ -73,9 +82,10 @@ class SlamState:
                 self.route_last = tuple(position)
 
     def add_scan(self, points):
-        new = bytearray()
+        new, scan = bytearray(), bytearray()
         with self.lock:
             for x, y, z, i in points:
+                scan += MAP_POINT.pack(x, y, z, i)
                 key = (math.floor(x / self.voxel), math.floor(y / self.voxel),
                        math.floor(z / self.voxel))
                 if key in self.voxels:
@@ -86,6 +96,7 @@ class SlamState:
                 self.voxels.add(key)
                 new += MAP_POINT.pack(x, y, z, i)
             self.map += new
+            self.latest = bytes(scan)
             self.scans += 1
 
     def map_payload(self, max_points=400_000) -> bytes:
@@ -98,26 +109,96 @@ class SlamState:
                             for i in range(0, len(data), MAP_POINT.size * stride))
         return struct.pack("<I", len(data) // MAP_POINT.size) + data
 
+    def scan_payload(self) -> bytes:
+        with self.lock:
+            data = self.latest
+        return struct.pack("<I", len(data) // MAP_POINT.size) + data
+
     def route_payload(self) -> bytes:
         with self.lock:
             data = bytes(self.route)
         return struct.pack("<I", len(data) // 12) + data
 
+    def pose_status(self, now=None) -> dict:
+        """Current pose for the frequently polled map view."""
+        now = time.time() if now is None else now
+        with self.lock:
+            last, pose = (self.odom_times[-1] if self.odom_times else None), self.pose
+        result = {"odom_age_s": round(now - last, 2) if last is not None else None,
+                  "pose": pose.to_dict() if pose else None}
+        if pose and self.camera:
+            result["camera"] = pose.compose(self.camera).to_dict()
+        return result
+
     def status(self, now=None) -> dict:
         now = time.time() if now is None else now
         with self.lock:
-            times, pose = list(self.odom_times), self.pose
+            times = list(self.odom_times)
             voxels, dropped, scans = len(self.voxels), self.dropped, self.scans
         recent = [t for t in times if now - t <= 2]
         rate = (len(recent) - 1) / (recent[-1] - recent[0]) if len(recent) > 1 and \
             recent[-1] > recent[0] else 0.0
-        result = {"odom_hz": round(rate, 2), "map_voxels": voxels, "map_dropped": dropped,
-                  "scans": scans, "odom_age_s": round(now - times[-1], 2) if times else None,
-                  "pose": pose.to_dict() if pose else None}
-        if pose and self.camera:
-            camera = pose.compose(self.camera)
-            result["camera"] = camera.to_dict()
-        return result
+        return {"odom_hz": round(rate, 2), "map_voxels": voxels, "map_dropped": dropped,
+                "scans": scans, "odom_publishers": self.publishers, **self.pose_status(now)}
+
+
+def alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def stop_group(pgid: int, timeout=30.0):
+    """SIGINT a process group, then SIGKILL it if it outlives the timeout."""
+    try:
+        os.killpg(pgid, signal.SIGINT)
+    except ProcessLookupError:
+        return
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.2)
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def reap_orphans(root: Path | None = None, proc=Path("/proc"), timeout=30.0) -> list:
+    """Stop GLIM processes left by consoles that exited without their cleanup.
+
+    Only folders with an owner file whose process no longer exists are touched;
+    a folder of a running console is left alone. Returns the stopped PIDs.
+    """
+    root = Path(tempfile.gettempdir()) if root is None else root
+    stopped = []
+    for folder in sorted(root.glob(LIVE_PREFIX + "*")):
+        try:
+            owner = int((folder / OWNER_FILE).read_text())
+        except (OSError, ValueError):
+            continue
+        if alive(owner):
+            continue
+        marker = str(folder).encode()
+        groups = set()
+        for entry in proc.glob("[0-9]*"):
+            try:
+                if marker in (entry / "cmdline").read_bytes():
+                    groups.add(os.getpgid(int(entry.name)))
+                    stopped.append(int(entry.name))
+            except (OSError, ValueError):
+                continue
+        for group in groups:
+            stop_group(group, timeout)
+        shutil.rmtree(folder, ignore_errors=True)
+    return sorted(stopped)
 
 
 class GlimProcess:
@@ -125,7 +206,9 @@ class GlimProcess:
 
     def __init__(self):
         from .glim import write_glim_config
-        self.folder = Path(tempfile.mkdtemp(prefix="splatrig-glim-live-"))
+        self.reaped = reap_orphans()
+        self.folder = Path(tempfile.mkdtemp(prefix=LIVE_PREFIX))
+        (self.folder / OWNER_FILE).write_text(str(os.getpid()))
         write_glim_config(self.folder / "config", points_topic=GLIM_POINTS_TOPIC, publish=True)
         self.log = (self.folder / "glim.log").open("wb")
         self.process = subprocess.Popen(
@@ -139,12 +222,8 @@ class GlimProcess:
         return self.process.poll() is None
 
     def stop(self):
-        if self.running():
-            os.killpg(self.process.pid, signal.SIGINT)
-            try:
-                self.process.wait(30)
-            except subprocess.TimeoutExpired:
-                os.killpg(self.process.pid, signal.SIGKILL)
-                self.process.wait()
+        # ros2 run exits before glim_rosnode, so wait on the whole process group.
+        stop_group(self.process.pid)
+        self.process.wait()
         self.log.close()
         shutil.rmtree(self.folder, ignore_errors=True)
