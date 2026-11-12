@@ -1,31 +1,28 @@
-<p align="center"><img src="docs/assets/banner.svg" alt="SplatRig — 具有一致位姿的 Gaussian splatting 訓練資料" width="100%"></p>
+<p align="center"><img src="docs/assets/banner.svg" alt="SplatRig" width="100%"></p>
 
 # SplatRig
 
-**走過場景，留下可靠幾何。**
-
-360 相機 + LiDAR → 具有一致相機位姿的 Gaussian splatting 訓練資料。
-
 [English](README.md) | **繁體中文**
 
-[執行示範](#不需要硬體的示範) · [資料格式](docs/FORMAT.zh-TW.md) · [硬體](docs/HARDWARE.zh-TW.md) · [開發路線](docs/ROADMAP.zh-TW.md) · [參與開發](CONTRIBUTING.zh-TW.md)
+用手持的 GoPro MAX2 + Livox Mid-360S 掃描場景，輸出 3DGS 可訓練的 COLMAP 資料集。
+掃描時可即時看到點雲、路線與相機位置。
 
-SplatRig 的目標是 GoPro MAX2 + Livox MID-360 手持掃描設備：邊走邊顯示點雲
-與相機軌跡，再將影像與幾何精確配對，交給桌面 3DGS 訓練器。
+目前狀態：即時介面、錄製與離線處理都能用；相機平移量仍是手動輸入，輸出標示為暫定，
+精度尚未量測。
 
-**目前階段：第一版硬體版本。** 即時介面可顯示 Mid-360S 點雲、MAX2 預覽，以及即時
-GLIM 路線與地圖，並同時錄製兩個裝置。錄好的資料可完整處理（.360 解碼、GLIM 軌跡、
-相機安裝的陀螺儀校正、PINHOLE 視角、COLMAP 種子模型）成資料集，但仍標示為暫定：
-相機平移量仍為手動輸入，精度尚未量測。接下來是室內外驗證與 3DGS 訓練。
+文件：[硬體](docs/HARDWARE.zh-TW.md) · [資料格式](docs/FORMAT.zh-TW.md) · [開發路線](docs/ROADMAP.zh-TW.md) · [測試紀錄](docs/LOCAL_TESTS.zh-TW.md)
 
-## 部署與啟動
+## 部署
 
-擷取用電腦：Ubuntu 24.04，Mid-360S 接 USB 網卡，MAX2 接 USB。編譯時請先離開 conda
-（`conda deactivate`）。細節見[硬體文件](docs/HARDWARE.zh-TW.md)。
+Ubuntu 24.04。編譯前先 `conda deactivate`。
 
-1. **ROS 2 Jazzy**（[官方安裝說明](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html)），
-   再執行 `sudo apt install -y ros-jazzy-desktop ros-dev-tools linuxptp ffmpeg`。
-2. **Livox SDK2 與 driver**
+1. 安裝 [ROS 2 Jazzy](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html)，再裝：
+
+   ```sh
+   sudo apt install -y ros-jazzy-desktop ros-dev-tools linuxptp ffmpeg
+   ```
+
+2. Livox SDK2 與 driver：
 
    ```sh
    git clone https://github.com/Livox-SDK/Livox-SDK2.git ~/Livox-SDK2
@@ -34,10 +31,14 @@ GLIM 路線與地圖，並同時錄製兩個裝置。錄好的資料可完整處
    mkdir -p ~/ws_livox/src && git clone https://github.com/Livox-SDK/livox_ros_driver2.git ~/ws_livox/src/livox_ros_driver2
    ```
 
-   在 `config/MID360s_config.json` 把所有 `host_ip` 設為 `192.168.1.50`、LiDAR 的 `ip`
-   設為 `192.168.1.1XX`（序號末兩碼），再執行
-   `source /opt/ros/jazzy/setup.bash && cd ~/ws_livox/src/livox_ros_driver2 && ./build.sh jazzy`。
-3. **GLIM**（作者 PPA 的 CPU 版）
+   修改 `config/MID360s_config.json`：`host_ip` 改成 `192.168.1.50`，`ip` 改成
+   `192.168.1.1XX`（XX 為序號末兩碼）。然後編譯：
+
+   ```sh
+   source /opt/ros/jazzy/setup.bash && cd ~/ws_livox/src/livox_ros_driver2 && ./build.sh jazzy
+   ```
+
+3. GLIM：
 
    ```sh
    curl -s --compressed https://koide3.github.io/ppa/ubuntu2404/KEY.gpg | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/koide3_ppa.gpg >/dev/null
@@ -45,7 +46,7 @@ GLIM 路線與地圖，並同時錄製兩個裝置。錄好的資料可完整處
    sudo apt update && sudo apt install -y libiridescence-dev libboost-all-dev libglfw3-dev libmetis-dev libgtsam-points-dev ros-jazzy-glim-ros
    ```
 
-4. **網路**（網卡名稱用 `ip -br link` 查）
+4. 網路（網卡名稱用 `ip -br link` 查）：
 
    ```sh
    sudo nmcli con add type ethernet ifname <lidar-nic> con-name livox ipv4.method manual \
@@ -54,127 +55,56 @@ GLIM 路線與地圖，並同時錄製兩個裝置。錄好的資料可完整處
      ipv4.never-default yes ipv6.method disabled
    ```
 
-5. **本專案與一次性設定**
+5. 下載本專案，設定 PTP 服務與選單捷徑：
 
    ```sh
    git clone <repository-url> splatrig && cd splatrig
-   sudo tools/install-ptp-service <lidar-nic>   # LiDAR 時間同步改為系統服務
-   tools/splatrig-app --install                 # 在應用程式選單加入「SplatRig」
+   sudo tools/install-ptp-service <lidar-nic>
+   tools/splatrig-app --install
    ```
 
-6. **檢查與啟動**：`tools/splatrig-ros doctor` 會列出缺少的項目與修正方法；
-   `tools/splatrig-ros start`（或選單中的 SplatRig）會啟動 driver、介面與即時 GLIM，
-   並開啟 http://127.0.0.1:8090/?view=map。按 Ctrl+C 全部停止。
-
-## 不需要硬體的示範
-
-需要 Python 3.10 以上。離線核心只使用標準函式庫，不需要 ROS、相機、
-LiDAR、GPU 或下載模型。
-
-在 Linux/macOS 的儲存庫根目錄執行：
+## 使用
 
 ```sh
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .
+tools/splatrig-ros doctor   # 檢查環境，列出缺少的項目
+tools/splatrig-ros start    # 啟動 driver、介面與 GLIM，開啟瀏覽器
+```
+
+也可以從應用程式選單點「SplatRig」。在網頁上按 Record 開始錄製，Ctrl+C 結束。
+
+錄完後處理：
+
+```sh
+# 裝好設備後先做一次：拿著設備繞三個軸轉動約 30 秒並錄下來
+tools/splatrig-ros calibrate-gyro ~/captures/<旋轉錄影> --output runs/calibration
+
+tools/splatrig-ros process-capture ~/captures/<錄影> --output runs/<名稱> \
+  --calibration runs/calibration/calibration.json --camera-offset 0 0 0.083
+```
+
+輸出資料夾是 COLMAP 格式（`images/`、`sparse/0/`、`points.ply`）。
+
+## 沒有硬體時
+
+```sh
+python3 -m venv .venv && source .venv/bin/activate && pip install -e .
 splatrig demo --output runs/demo
-splatrig replay runs/demo --output runs/replay
+splatrig replay runs/demo --output runs/replay    # 用瀏覽器開 runs/replay/preview.html
 splatrig export runs/demo --output runs/colmap
 ```
 
-Windows 請先使用虛擬環境的 Scripts/Activate.ps1 啟用環境，
-再執行相同的 Python 與 splatrig 指令。
+示範資料是合成的，只用來驗證軟體流程。
 
-以瀏覽器開啟 **runs/replay/preview.html**，可旋轉點雲、檢查相機路線並切換
-相機視錐顯示。預覽包含全部資料，不需要網路。測試資料包含繪製的房間影像、
-移動感測器的逐點時間及已知相機幾何，明確標為合成資料，不是訓練後的模型。
-相機軌跡是事先給定的正確答案，目前沒有透過 SLAM 演算法估計。
-
-匯出資料如下：
-
-```text
-runs/colmap/
-├── images/
-├── sparse/0/             cameras.bin · images.bin · points3D.bin（及文字版）
-├── image-poses.jsonl     camera-to-world 位姿、來源與參考時間
-├── points.ply
-├── report.json
-└── preview.html
-```
-
-稀疏模型提供相機位姿、PINHOLE 內參與初始化點，不含 SfM 觀測軌跡。
-支援 COLMAP 的訓練器可使用此資料結構；實際拍攝品質及各訓練器的行為仍需測試。
-
-## 基礎版本已完成的功能
-
-- 以成對實體事件時間擬合時鐘偏移與漂移。
-- 插值 rig 位姿，分別套用相機與 LiDAR 外參。
-- 以每個點自己的時間重播點雲，並進行體素減量。
-- 使用同一版軌跡重新計算點雲與照片位姿。
-- 拒絕外插、過大位姿間隔、混合版本與未完成的校正。
-- 保留原始擷取資料，匯出 COLMAP 二進位／文字種子模型。
-- 使用沒有外部素材依賴的離線瀏覽器預覽。
-
-一般匯出需要最終軌跡，以及完成校正的 rig／時鐘。
-`--allow-provisional` 明確啟用診斷輸出，結果會保留暫定狀態。
-
-## 擷取架構
-
-```mermaid
-flowchart LR
-    L["MID-360 + IMU"] --> S["外部 SLAM / GLIM"]
-    S --> P["即時點雲 + rig 軌跡"]
-    G["MAX2 預覽 + 原始錄影"] --> C["時間 + 相機校正"]
-    P --> R["最終軌跡版本"]
-    C --> R
-    R --> D["影像 + 相機位姿 + 初始化點雲"]
-    D --> E["COLMAP → 桌面 3DGS 訓練器"]
-```
-
-目前可執行的入口位於離線資料處理階段，即時 SLAM 由獨立程序執行。
-[硬體整合計畫](docs/HARDWARE.zh-TW.md)列出已提供的介面及尚待實作的部分。
-
-## 常用指令
+## 開發
 
 ```sh
-splatrig validate runs/demo
-splatrig fit-clock events.csv --output runs/clock.json
-splatrig demo --panorama --output runs/panorama          # 合成 360 輸入
-splatrig panorama-views runs/panorama --output runs/views  # 需要 ffmpeg
-splatrig import-livox <bag> --output runs/lidar            # 需要 ROS 2 與 Livox 驅動
-splatrig live                                              # 本機介面，http://127.0.0.1:8090/
-tools/splatrig-ros start                                   # 檢查 + driver + 介面 + GLIM
-tools/splatrig-ros doctor                                  # 列出這台電腦缺少的項目
-tools/splatrig-ros live --slam --calibration <calibration.json>   # 只啟動介面（driver 已在執行）
-splatrig glim-bag <bag> --output runs/glim                 # 供 GLIM 使用的 PointCloud2 副本
-tools/splatrig-ros calibrate-gyro <rotation capture> --output runs/mount-calibration
-tools/splatrig-ros process-capture <capture> --output <run> --calibration runs/mount-calibration/calibration.json
-splatrig record-poses --help
 python -m unittest discover -s tests -v
 python tools/smoke.py
 python tools/check_project.py
 ```
 
-校時事件 CSV 欄位為 `camera_ns,reference_ns`，至少使用三組涵蓋拍攝期間的
-成對量測。共同發送錄影指令不代表量到曝光時間，詳見[時間與座標](docs/FORMAT.zh-TW.md)。
+工作規範見 [AGENTS.md](AGENTS.zh-TW.md)。
 
-## 一起開發
+## 授權
 
-第一個硬體里程碑是一筆可重現的室內外連續掃描，包含原始資料、校正、
-軌跡修正版本及獨立檢查過的訓練資料。[開發路線](docs/ROADMAP.zh-TW.md)
-列出具體驗收方式。適合參與的工作包含 MAX2 串流／PTS 量測、
-MID-360 記錄資料及可重現的訓練器載入檢查。
-
-[本機測試紀錄](docs/LOCAL_TESTS.zh-TW.md)區分已完成的軟體檢查，
-以及尚未執行的裝置整合與訓練。
-
-專案工作規範請看 [AGENTS.md](AGENTS.zh-TW.md)，專用技能放在
-[.agents/skills/splatrig-development](.agents/skills/splatrig-development/SKILL.md)。
-
-## 授權與相關專案
-
-MIT，請見 [LICENSE](LICENSE) 與 [NOTICE](NOTICE)。
-
-工作流程延續作者的 [AnyReplica](https://github.com/KuoFengYuan/anyreplica)
-經驗，SplatRig 採用獨立實作與授權。外部 SLAM、裝置驅動、相機軟體與
-訓練器各自依其授權使用。
+MIT，見 [LICENSE](LICENSE) 與 [NOTICE](NOTICE)。GLIM、Livox driver 等外部軟體依各自的授權。
