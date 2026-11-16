@@ -283,9 +283,10 @@ establish accuracy while moving.
 `tools/splatrig-ros process-capture <capture> --output <run> --camera-offset X Y Z
 --camera-ypr YAW PITCH ROLL` turns a folder recorded by `live` into a COLMAP dataset:
 LiDAR import, GLIM bag and configuration, an offline GLIM run on ROS domain 73,
-trajectory import, download of the new MAX2 `.360` file, panorama extraction, session
-assembly, cube views and export. Work happens in a hidden directory that is renamed
-only after success (`.<run>-failed` is kept for inspection otherwise).
+trajectory import, download of the new MAX2 `.360` file, frame choice, panorama
+extraction, session assembly, views, export and masks. Work happens in a hidden
+directory that is renamed only after success (`.<run>-failed` is kept for inspection
+otherwise). Each step's name is printed to stderr as it starts.
 
 The result is provisional by construction: the MAX2 mount is hand-entered (camera
 center in LiDAR meters; yaw toward LiDAR +Y, pitch up, roll about the camera's
@@ -304,6 +305,51 @@ First run (stationary desk, 21 s): no LiDAR gaps, 179 GLIM poses, 39 panoramas o
 which 33 fell inside the trajectory, 198 cube views and a provisional COLMAP model,
 in 72 s. A yaw search correlating LiDAR reflectivity with panorama brightness was
 ambiguous (peaks 0.215 at −25° and 0.208 at −135°) and is not used.
+
+### Dataset quality steps
+
+- **Frame choice.** Frames are chosen along the GLIM trajectory, not every Nth frame.
+  A frame is due once the rig moved 0.3 m (`--spacing`) or turned 20°
+  (`--spacing-deg`) since the last one. Of the frames in the next 0.5 s, the one
+  turning slowest is kept. A frame turning faster than 30°/s (`--max-turn`) is never
+  kept, because it would be blurred. Standing still therefore gives one frame, not
+  dozens. The turn rate comes from the trajectory: blur from rotation is predicted,
+  but exposure time, defocus and rolling shutter are not measured. `--every N`
+  restores fixed spacing. The frame filter now runs before the cubemap conversion,
+  so skipped frames are only decoded; the output images are byte-identical to the
+  previous order.
+- **Near points.** LiDAR points closer than 0.6 m to the sensor (`--min-range`) are
+  left out of the session and `points.ply` and counted in `assembly.json`
+  (`points_near_sensor`). These are the operator, the mount and the cable.
+- **Downward view.** The default layout `cube-no-down` writes front, right, back, left
+  and up. The downward view of a handheld rig shows the mount and the hands.
+  `--layout cube` keeps all six.
+- **Operator masks.** `dataset/masks/<image name>` marks pixels to ignore with 0 and
+  usable pixels with 255. This is the COLMAP and nerfstudio convention; the original
+  3DGS trainer ignores masks. How the masks are estimated:
+  - While the rig moves, a LiDAR direction (2° bins) whose returns are mostly closer
+    than 0.8 m is taken to be part of the rig or the operator.
+  - Those returns are carried into the camera's sphere frame and widened by 4°.
+  - Directions outside the LiDAR field of view, such as the hands below the sensor,
+    are not covered.
+  - Nothing is estimated unless the rig travelled at least 1 m. When the rig only
+    turns a little in place, nearby scene keeps its direction too.
+  - A mask covering more than 25% of the sphere is rejected as implausible. A narrow
+    corridor walked straight can still be mistaken for the rig.
+  - `process.json` (`self_mask`) states why no masks were written.
+  - `--no-masks` turns masks off.
+
+Re-run on the 26 s gyro-rotation capture with its calibration, the whole pipeline
+took 41 s:
+- 746 video frames: 88 outside the trajectory, 128 turning faster than 30°/s.
+- 9 frames kept, at a median 2.7°/s, which gave 45 views.
+- 595k points within 0.6 m dropped; this was a desk scene.
+- No masks: the rig travelled 0.28 m.
+- COLMAP's `model_analyzer` read 5 cameras, 45 images and 23k points.
+
+Before the 1 m gate, masks from this capture covered monitors and partitions near
+the desk as well as the operator, which is why the gate exists. Masks have not yet
+been checked on a walking capture.
 
 ### Planned handheld rig (v3, one-piece print)
 

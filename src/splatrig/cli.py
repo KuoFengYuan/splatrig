@@ -133,10 +133,21 @@ def parser():
     rotation.add_argument("--calibration", type=Path, help="calibration.json from calibrate-gyro")
     process.add_argument("--video", type=Path, help="Local .360 file instead of downloading")
     process.add_argument("--gopro", default="auto", help="Camera IP, 'auto' or 'none'")
-    process.add_argument("--every", type=int, default=15)
+    process.add_argument("--every", type=int,
+                         help="Keep every Nth frame instead of choosing frames along the route")
+    process.add_argument("--spacing", type=float, default=0.3,
+                         help="Take a frame each time the rig moved this far, meters")
+    process.add_argument("--spacing-deg", type=float, default=20.0,
+                         help="... or turned this far, degrees")
+    process.add_argument("--max-turn", type=float, default=30.0,
+                         help="Never keep a frame turning faster than this (blur), degrees/s")
+    process.add_argument("--min-range", type=float, default=0.6,
+                         help="Drop LiDAR points closer than this to the sensor, meters")
+    process.add_argument("--no-masks", action="store_true",
+                         help="Do not write masks/ for the operator and the mount")
     process.add_argument("--width", type=int, default=3840)
     process.add_argument("--size", type=int, default=1024)
-    process.add_argument("--layout", choices=sorted(PRESETS), default="cube")
+    process.add_argument("--layout", choices=sorted(PRESETS), default="cube-no-down")
     gyro = commands.add_parser(
         "calibrate-gyro", help="MAX2-to-LiDAR rotation and clock offset from a rotation capture")
     gyro.add_argument("capture", type=Path)
@@ -214,8 +225,12 @@ def main(argv=None):
                                      camera_offset=tuple(args.camera_offset),
                                      camera_ypr=tuple(args.camera_ypr) if args.camera_ypr else None,
                                      calibration=args.calibration, video=args.video,
-                                     gopro_host=host, every=args.every, width=args.width,
-                                     view_size=args.size, layout=args.layout)
+                                     gopro_host=host, every=args.every, spacing_m=args.spacing,
+                                     spacing_deg=args.spacing_deg, max_turn_dps=args.max_turn,
+                                     min_range_m=args.min_range, masks=not args.no_masks,
+                                     width=args.width, view_size=args.size, layout=args.layout,
+                                     progress=lambda name: print(f"[{name}]", file=sys.stderr,
+                                                                 flush=True))
         elif args.command == "calibrate-gyro":
             from .gopro import detect_camera
             from .pipeline import calibrate_capture

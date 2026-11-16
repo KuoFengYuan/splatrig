@@ -14,15 +14,19 @@ from .panorama import equirect_direction
 from .session import write_json, write_jsonl
 
 
-def png_bytes(width: int, height: int, rows) -> bytes:
+def png_bytes(width: int, height: int, rows, channels: int = 3) -> bytes:
+    """8-bit RGB (channels=3) or grayscale (channels=1) PNG from unfiltered rows."""
     def chunk(kind, payload):
         return (struct.pack(">I", len(payload)) + kind + payload +
                 struct.pack(">I", zlib.crc32(kind + payload) & 0xffffffff))
+    if channels not in (1, 3):
+        raise ValueError("PNG rows must be RGB or grayscale")
     raw = b"".join(b"\0" + bytes(row) for row in rows)
-    if len(raw) != height*(1+width*3):
-        raise ValueError("RGB row dimensions do not match the PNG")
+    if len(raw) != height*(1+width*channels):
+        raise ValueError("PNG row dimensions do not match the image size")
     return (b"\x89PNG\r\n\x1a\n" +
-            chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) +
+            chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8,
+                                       2 if channels == 3 else 0, 0, 0, 0)) +
             chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
 
 

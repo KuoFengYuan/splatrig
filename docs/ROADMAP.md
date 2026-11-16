@@ -34,7 +34,8 @@ all loss; make no throughput claim before this test.
 - Extract matched timing events or gyro sequences from the actual media.
 - Validate clock rate/offset across the full capture, including chapter boundaries.
 - Convert 360 imagery to fixed PINHOLE views, retaining exposure groups and masks.
-  Equirectangular conversion exists; masks and original .360/EAC decoding remain.
+  Equirectangular conversion and .360 decoding exist. Operator masks are estimated
+  from LiDAR returns that move with the rig; they are not yet checked on a walking capture.
 - Test output orientation, near-object stitching and rolling shutter.
 
 Acceptance: known geometry projects consistently during stationary, translating
@@ -45,6 +46,8 @@ clock-fit residuals alone do not establish exposure synchronization.
 
 - Recompute points and image poses from the final trajectory revision.
 - Add frame selection using measured image sharpness and coverage.
+  Frames are chosen by trajectory spacing and predicted rotation blur; measured
+  image sharpness and coverage remain.
 - Project sparse camera-Z depths with visibility/validity masks.
 - Test real datasets with a selected desktop trainer; record its version/settings.
 - Compare held-out photographs and independent geometric measurements.
