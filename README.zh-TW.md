@@ -1,20 +1,34 @@
-<p align="center"><img src="docs/assets/banner.svg" alt="SplatRig" width="100%"></p>
-
 # SplatRig
+
+[![Check](https://github.com/KuoFengYuan/splatrig/actions/workflows/check.yml/badge.svg)](https://github.com/KuoFengYuan/splatrig/actions/workflows/check.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)
 
 [English](README.md) | **繁體中文**
 
-用手持的 GoPro MAX2 + Livox Mid-360S 掃描場景，輸出 3DGS 可訓練的 COLMAP 資料集。
-掃描時可即時看到點雲、路線與相機位置。
+SplatRig 錄製手持的 Livox Mid-360S + GoPro MAX2 設備，並把每段錄影轉成 Gaussian
+splatting 用的 COLMAP 資料集。掃描時可在瀏覽器介面看到即時的 SLAM 地圖。
 
-目前狀態：即時介面、錄製與離線處理都能用；相機平移量仍是手動輸入，輸出標示為暫定，
-精度尚未量測。
+> **狀態：** 開發初期，只在一台桌機上、感測器接線的情況下測試過。資料集標示為暫定，
+> 精度尚未量測。
 
-文件：[硬體](docs/HARDWARE.zh-TW.md) · [資料格式](docs/FORMAT.zh-TW.md) · [開發路線](docs/ROADMAP.zh-TW.md) · [測試紀錄](docs/LOCAL_TESTS.zh-TW.md)
+## 功能
 
-## 部署
+- 即時介面：GLIM 地圖、路線、相機位姿、覆蓋率與速度警告
+- 一行指令啟動，並可檢查環境（`doctor`）
+- 用 30 秒的旋轉錄影校正相機與 LiDAR（旋轉、時間差、位置）
+- 輸出資料集：選取關鍵幀、切成立方體視角、點雲上色、操作者遮罩
 
-Ubuntu 24.04。編譯前先 `conda deactivate`。
+## 需求
+
+- Ubuntu 24.04 與 ROS 2 Jazzy
+- Livox Mid-360S（乙太網路）、GoPro MAX2（USB）
+- [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2)、
+  [GLIM](https://github.com/koide3/glim)、ffmpeg、linuxptp
+
+## 安裝
+
+編譯前先 `conda deactivate`。
 
 1. 安裝 [ROS 2 Jazzy](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html)，再裝：
 
@@ -66,38 +80,28 @@ Ubuntu 24.04。編譯前先 `conda deactivate`。
 ## 使用
 
 ```sh
-tools/splatrig-ros doctor   # 檢查環境，列出缺少的項目
-tools/splatrig-ros start    # 啟動 driver、介面與 GLIM，開啟瀏覽器
+tools/splatrig-ros doctor   # 檢查環境
+tools/splatrig-ros start    # 啟動 driver、GLIM 與介面
 ```
 
-也可以從應用程式選單點「SplatRig」。Ctrl+C 結束。
+也可以從應用程式選單點「SplatRig」。介面位於 http://127.0.0.1:8090/，Ctrl+C 會全部關閉。
 
-網頁的用法和手機掃描 app 一樣：
+1. **校正**（每次固定方式改變後做一次）：錄一段約 30 秒、拿著固定好的設備繞三個軸
+   轉動的影片，然後按 **Use as calibration**。
+2. **掃描**：慢慢走並錄製，然後按 **Make 3DGS dataset**。
 
-- 按圓形按鈕開始掃描，再按一次停止。
-- 掃描時，畫面上方顯示時間，並一次只顯示一則提示：放慢、轉太快、回到掃過的地方。
-- 按鈕外圈與 **Coverage** 顯示已從多個方向看過的範圍。
+資料集寫在 `~/splatrig-runs/<錄影名稱>/dataset/`，為 COLMAP 格式：`images/`、
+`sparse/0/`、`points.ply`，能估計操作者時另有 `masks/`。之前的錄影在 **Captures** 裡。
 
-停止後會跳出檢視面板：
-
-1. 每次固定方式改變後做一次：錄一段約 30 秒、拿著固定好的設備繞三個軸轉動的影片，
-   按 **Use as calibration**。這一步也會量出 MAX2 相對 LiDAR 的位置。
-2. 掃描錄影則按 **Make 3DGS dataset**。
-
-**Captures** 可以找到之前的錄影。結果放在 `~/splatrig-runs/`，介面會記住校正檔與位移。
-也可以在終端機執行：
+在終端機執行：
 
 ```sh
-# 裝好設備後先做一次：拿著設備繞三個軸轉動約 30 秒並錄下來
 tools/splatrig-ros calibrate-gyro ~/captures/<旋轉錄影> --output runs/calibration
-
 tools/splatrig-ros process-capture ~/captures/<錄影> --output runs/<名稱> \
   --calibration runs/calibration/calibration.json
 ```
 
-輸出資料夾是 COLMAP 格式（`images/`、`sparse/0/`、有顏色的 `points.ply`；能估計操作者時另有 `masks/`）。
-
-## 沒有硬體時
+### 沒有硬體時
 
 ```sh
 python3 -m venv .venv && source .venv/bin/activate && pip install -e .
@@ -108,6 +112,13 @@ splatrig export runs/demo --output runs/colmap
 
 示範資料是合成的，只用來驗證軟體流程。
 
+## 文件
+
+- [硬體整合](docs/HARDWARE.zh-TW.md)
+- [資料格式](docs/FORMAT.zh-TW.md)
+- [開發路線](docs/ROADMAP.zh-TW.md)
+- [本機測試紀錄](docs/LOCAL_TESTS.zh-TW.md)
+
 ## 開發
 
 ```sh
@@ -116,7 +127,7 @@ python tools/smoke.py
 python tools/check_project.py
 ```
 
-工作規範見 [AGENTS.md](AGENTS.zh-TW.md)。
+請參考 [CONTRIBUTING](CONTRIBUTING.zh-TW.md) 與 [AGENTS.md](AGENTS.zh-TW.md)。
 
 ## 授權
 
