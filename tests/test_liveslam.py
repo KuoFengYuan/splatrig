@@ -159,8 +159,11 @@ class NewScanTests(unittest.TestCase):
         status = state.status(now=1)
         self.assertEqual((status["map_voxels"], status["scans"], status["pose"]), (0, 0, None))
         self.assertEqual(struct.unpack_from("<I", state.route_payload())[0], 0)
+        from unittest import mock
         from splatrig.liveslam import GlimProcess
-        with tempfile.TemporaryDirectory() as temporary:
+        # No GLIM installation is needed: its configuration writer is replaced.
+        with tempfile.TemporaryDirectory() as temporary, \
+                mock.patch("splatrig.glim.write_glim_config", lambda folder, **_: folder.mkdir()):
             os.environ["TMPDIR"] = temporary
             tempfile.tempdir = None
             try:
