@@ -63,13 +63,32 @@ class GoPro:
         if not re.fullmatch(r"\d{3}GOPRO/[A-Z0-9]+\.[0-9A-Za-z]+", name):
             raise ValueError(f"Unexpected media name: {name}")
         try:
+            if self.status().get("encoding"):
+                raise ValueError("The MAX2 is recording; download its files after it stops")
+        except (ValueError, OSError) as error:
+            if "recording" in str(error):
+                raise
+            # A camera that does not report its state may still serve files.
+        written, expected = 0, None
+        try:
             with urllib.request.urlopen(f"{self.base}/videos/DCIM/{name}",
                                         timeout=self.timeout) as response, \
                     destination.open("xb") as stream:
+                length = response.headers.get("Content-Length")
+                expected = int(length) if length and length.isdigit() else None
                 while chunk := response.read(1 << 20):
                     stream.write(chunk)
+                    written += len(chunk)
         except (urllib.error.URLError, OSError) as error:
+            destination.unlink(missing_ok=True)
             raise ValueError(f"GoPro download failed: {error}") from error
+        if expected is not None and written != expected:
+            # The camera ends the transfer early when it starts recording or sleeps;
+            # a truncated .360 would only fail later with a confusing decoder error.
+            destination.unlink(missing_ok=True)
+            raise ValueError(f"GoPro download of {name} stopped at {written / 1e6:.0f} of "
+                             f"{expected / 1e6:.0f} MB; keep the MAX2 idle and connected, "
+                             "then try again")
 
     def info(self) -> dict:
         data = self.get("/gopro/camera/info")

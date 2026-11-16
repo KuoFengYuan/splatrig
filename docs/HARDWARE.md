@@ -403,7 +403,11 @@ LiDAR import, GLIM bag and configuration, an offline GLIM run on ROS domain 73,
 trajectory import, download of the new MAX2 `.360` file, frame choice, panorama
 extraction, session assembly, views, masks, point colours and export. Work happens in a hidden
 directory that is renamed only after success (`.<run>-failed` is kept for inspection
-otherwise). Each step's name is printed to stderr as it starts.
+otherwise). Each step's name is printed to stderr as it starts. A MAX2 download is
+refused while the camera records, and a transfer shorter than the camera's
+`Content-Length` is deleted and reported. The camera ends a transfer early when it
+starts recording or sleeps, and the truncated `.360` used to fail later as
+"Invalid data" in ffprobe.
 
 The result is provisional by construction: the MAX2 mount is hand-entered (camera
 center in LiDAR meters; yaw toward LiDAR +Y, pitch up, roll about the camera's
