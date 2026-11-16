@@ -14,7 +14,7 @@ import unittest
 from splatrig.geometry import Pose, rotate
 from splatrig.live import camera_mount
 from splatrig.liveslam import (LIVE_PREFIX, MAP_POINT, OWNER_FILE, SlamState, cloud_points,
-                               reap_orphans)
+                               reap_orphans, voxel_key)
 
 
 def field(name, offset):
@@ -39,9 +39,12 @@ class CloudPointTests(unittest.TestCase):
 class SlamStateTests(unittest.TestCase):
     def test_voxels_budget_route_and_payloads(self):
         state = SlamState(voxel=0.1, max_voxels=3)
-        state.add_scan([(0.01, 0, 0, 1), (0.02, 0, 0, 2), (0.15, 0, 0, 3), (0, 0.5, 0, 4),
-                        (0, 0, 0.9, 5)])
-        status = state.status(now=0)
+        scan = [(0.01, 0, 0, 1), (0.02, 0, 0, 2), (0.15, 0, 0, 3), (0, 0.5, 0, 4),
+                (0, 0, 0.9, 5)]
+        state.add_scan(scan, received=0)
+        self.assertEqual(state.status(now=0)["map_voxels"], 0)  # not yet confirmed
+        state.add_scan(scan, received=1)
+        status = state.status(now=1)
         self.assertEqual((status["map_voxels"], status["map_dropped"]), (3, 1))
         payload = state.map_payload()
         self.assertEqual(struct.unpack_from("<I", payload)[0], 3)
@@ -61,6 +64,35 @@ class SlamStateTests(unittest.TestCase):
         self.assertNotIn("camera", status)
         self.assertIsNone(status["odom_publishers"])
         self.assertEqual(state.pose_status(now=10.5), {"odom_age_s": 0.1, "pose": status["pose"]})
+
+    def test_transient_and_near_returns_stay_out_of_the_map(self):
+        state = SlamState(voxel=0.1, near_m=0.6, confirm_s=0.5, pending_s=10)
+        state.add_odometry((10, 0, 0), (1, 0, 0, 0), received=0)
+        wall, walker, operator = (13, 0, 0, 1), (11.5, 0, 0, 2), (10.3, 0, 0, 3)
+        state.add_scan([wall, walker, operator], received=0.0)
+        state.add_scan([wall, walker, operator], received=0.3)  # walker still there
+        state.add_scan([wall, operator], received=0.6)  # walker gone after 0.3 s
+        self.assertEqual(state.status(now=0.6)["map_voxels"], 1)
+        payload = state.map_payload()
+        self.assertEqual(list(MAP_POINT.iter_unpack(payload[4:])), [wall])
+        # The newest-scan view still shows everything the sensor returned.
+        self.assertEqual(struct.unpack_from("<I", state.scan_payload())[0], 2)
+        self.assertEqual(state.status(now=0.6)["map_pending"], 1)  # the walker
+        state.add_scan([wall], received=11)  # the walker's voxel expires unconfirmed
+        state.add_scan([walker], received=11.2)
+        state.add_scan([walker], received=11.4)
+        self.assertEqual(state.status(now=11.4)["map_voxels"], 1)
+        # A bounded pending table drops its oldest entries first.
+        small = SlamState(voxel=0.1, max_pending=2)
+        small.add_scan([(1, 0, 0, 0), (2, 0, 0, 0), (3, 0, 0, 0)], received=0)
+        self.assertEqual(list(small.pending), [voxel_key(2, 0, 0, 0.1), voxel_key(3, 0, 0, 0.1)])
+
+    def test_voxel_keys(self):
+        self.assertEqual(voxel_key(0.01, 0.02, 0.03, 0.05), voxel_key(0.04, 0.0, 0.049, 0.05))
+        keys = {voxel_key(x, y, z, 0.05) for x in (-0.01, 0.01) for y in (-0.01, 0.01)
+                for z in (-0.01, 0.01)}
+        self.assertEqual(len(keys), 8)
+        self.assertNotEqual(voxel_key(-50000, 0, 0, 0.05), voxel_key(50000, 0, 0, 0.05))
 
     def test_camera_pose_from_calibration(self):
         with tempfile.TemporaryDirectory() as temporary:

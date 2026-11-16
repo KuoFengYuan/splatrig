@@ -172,7 +172,8 @@ def checks(port=8090, gopro="auto", slam=True, environ=None, procs=None,
         mine = [m for m in masters if m["nic"] == nic]
         if not masters:
             out.append(Check("PTP time sync", "warn", "ptp4l is not running; LiDAR stamps fall "
-                             "back to host arrival time", "one-time setup: " + PTP_INSTALL.format(nic=nic)))
+                             "back to host arrival time and the SLAM map smears when moving",
+                             "one-time setup: " + PTP_INSTALL.format(nic=nic)))
         elif len(masters) > 1:
             out.append(Check("PTP time sync", "fail",
                              f"{len(masters)} ptp4l processes (PIDs "
