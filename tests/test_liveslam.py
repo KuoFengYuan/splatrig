@@ -145,3 +145,34 @@ class OrphanTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewScanTests(unittest.TestCase):
+    def test_reset_and_glim_restart(self):
+        import sys
+        state = SlamState(voxel=0.1)
+        state.add_odometry((1, 2, 3), (1, 0, 0, 0), received=0)
+        state.add_scan([(5, 0, 0, 1)], received=0)
+        state.add_scan([(5, 0, 0, 1)], received=1)
+        self.assertEqual(state.status(now=1)["map_voxels"], 1)
+        state.reset()
+        status = state.status(now=1)
+        self.assertEqual((status["map_voxels"], status["scans"], status["pose"]), (0, 0, None))
+        self.assertEqual(struct.unpack_from("<I", state.route_payload())[0], 0)
+        from splatrig.liveslam import GlimProcess
+        with tempfile.TemporaryDirectory() as temporary:
+            os.environ["TMPDIR"] = temporary
+            tempfile.tempdir = None
+            try:
+                glim = GlimProcess(command=[sys.executable, "-c", "import time; time.sleep(60)"])
+                first, folder = glim.process.pid, glim.folder
+                glim.restart()
+                self.assertNotEqual(glim.process.pid, first)
+                self.assertFalse(folder.exists())
+                self.assertTrue(glim.running())
+                self.assertEqual(glim.restarts, 1)
+                glim.stop()
+                self.assertFalse(glim.running())
+            finally:
+                os.environ.pop("TMPDIR", None)
+                tempfile.tempdir = None

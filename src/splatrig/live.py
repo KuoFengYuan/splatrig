@@ -273,6 +273,28 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
                  processor: Processor | None = None, guide: ScanGuide | None = None):
     page = ASSET.read_bytes()
 
+    def new_scan():
+        """Each scan starts a fresh SLAM session and an empty live map.
+
+        The old GLIM keeps publishing until it is stopped, and the new one starts
+        at the origin, so the map and the guide are cleared again afterwards.
+        """
+        if slam is not None:
+            slam.reset()
+        if glim is None:
+            return
+
+        def restart():
+            try:
+                glim.restart()
+            except Exception as error:  # reported by the SLAM status
+                print(f"Could not restart GLIM: {error}", file=sys.stderr, flush=True)
+            if slam is not None:
+                slam.reset()
+            if guide is not None and guide.recording:
+                guide.start()
+        threading.Thread(target=restart, daemon=True).start()
+
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -377,6 +399,8 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
                 return
             try:
                 result = action()
+                if path == "/api/record/start":
+                    new_scan()
                 if guide is not None and path == "/api/record/start":
                     guide.start()
                 elif guide is not None and path == "/api/record/stop":

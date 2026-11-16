@@ -310,6 +310,13 @@ tools/splatrig-ros live            # --gopro none for LiDAR only
   is a preview; datasets still come from the offline run of the recorded bag.
   Replaying the 27 s rotation bag in an isolated domain gave 10 Hz odometry and a
   17k-voxel map (23k before confirmation was required) with no dropped voxels.
+- Every scan starts a new SLAM session. Pressing the record button clears the live
+  map, route and pose and restarts GLIM, so drift from earlier scans or from time
+  between scans does not carry over. GLIM needs a few seconds to start, which is
+  why scans begin by holding still. The map stays visible after Stop for review.
+  Datasets were never affected: each is rebuilt by its own offline GLIM run.
+  Checked by replaying a recorded bag into a console and recording twice: the map
+  emptied at each start and was tracked again within 6 s, with one GLIM throughout.
 - The pose is polled every 0.1 s and GLIM's newest scan ("Live scan", cyan) every
   0.2 s. The map and route refresh every second, the coverage cells every 2 s.
 - Checked by replaying the 35 s capture of 2026-11-16 into a console in an isolated
