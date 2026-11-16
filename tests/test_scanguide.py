@@ -30,7 +30,8 @@ class SpanTests(unittest.TestCase):
 
 class GuideTests(unittest.TestCase):
     def test_photos_follow_the_dataset_spacing_rule(self):
-        guide = ScanGuide(sample=1)
+        self.assertEqual((ScanGuide().spacing_m, ScanGuide().spacing_deg), (0.15, 10.0))
+        guide = ScanGuide(sample=1, spacing_m=0.3)
         guide.add_pose((0, 0, 0), yaw(0), received=0)  # not recording: ignored
         guide.start(now=0)
         for i in range(61):  # walk 3 m along +X at 0.5 m/s, 10 Hz

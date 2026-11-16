@@ -221,7 +221,7 @@ tools/splatrig-ros live            # --gopro none for LiDAR only
 - POST requests require an `X-SplatRig: 1` header. The server never binds to other
   interfaces; phone access needs a separate, deliberate setup.
 - **Guidance during a scan** (`scanguide.py`). The console replays the dataset's
-  photo rule on GLIM's odometry: a photo is due every 0.3 m or 20°, taken when
+  photo rule on GLIM's odometry: a photo is due every 0.15 m or 10°, taken when
   turning no faster than 30°/s. A photo due for more than 0.5 s counts as a
   stretch too fast for photos.
   - Coverage: at each photo, the newest scan marks 25 cm cells as seen from the
@@ -389,13 +389,14 @@ ambiguous (peaks 0.215 at −25° and 0.208 at −135°) and is not used.
 ### Dataset quality steps
 
 - **Frame choice.** Frames are chosen along the GLIM trajectory, not every Nth frame.
-  A frame is due once the rig moved 0.3 m (`--spacing`) or turned 20°
+  A frame is due once the rig moved 0.15 m (`--spacing`) or turned 10°
   (`--spacing-deg`) since the last one. Of the frames in the next 0.5 s, the one
   turning slowest is kept. A frame turning faster than 30°/s (`--max-turn`) is never
   kept, because it would be blurred. Standing still therefore gives one frame, not
   dozens. The turn rate comes from the trajectory: blur from rotation is predicted,
   but exposure time, defocus and rolling shutter are not measured. `--every N`
-  restores fixed spacing. The frame filter now runs before the cubemap conversion,
+  restores fixed spacing. The spacing was halved from 0.3 m / 20° after a 31 s desk
+  capture gave only 11 frames (55 images), too few for training. The frame filter now runs before the cubemap conversion,
   so skipped frames are only decoded; the output images are byte-identical to the
   previous order.
 - **Near points.** LiDAR points closer than 0.6 m to the sensor (`--min-range`) are

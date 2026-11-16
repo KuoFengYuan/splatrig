@@ -88,6 +88,16 @@ class Processor:
         value = self.settings["calibration"]
         return Path(value) if value else None
 
+    def measured_offset(self):
+        """The current calibration's accelerometer offset estimate, if any."""
+        path = self.calibration()
+        try:
+            value = json.loads(path.read_text(encoding="utf-8")).get("camera_offset_m") \
+                if path else None
+            return camera_offset(value) if value is not None else None
+        except (OSError, ValueError, AttributeError):
+            return None
+
     # ---------- captures ----------
     def capture(self, name) -> Path:
         if not isinstance(name, str) or not NAME.fullmatch(name):
@@ -185,9 +195,14 @@ class Processor:
                 if result["camera_offset_m"]:  # the estimate replaces a hand-entered offset
                     self.settings["camera_offset"] = list(camera_offset(result["camera_offset_m"]))
             else:
+                # An offset equal to the calibration's measurement is passed as None, so
+                # the dataset records it as measured rather than entered by hand.
+                measured = self.measured_offset()
+                same = measured is not None and all(abs(a - b) < 1e-9
+                                                    for a, b in zip(measured, offset))
                 report = self.process(capture, output, calibration=self.calibration(),
-                                      camera_offset=offset, gopro_host=self.gopro_host,
-                                      progress=progress)
+                                      camera_offset=None if same else offset,
+                                      gopro_host=self.gopro_host, progress=progress)
                 steps = report.get("steps", {})
                 mask = steps.get("self_mask", {})
                 keyframes = steps.get("keyframes", {})

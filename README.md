@@ -114,7 +114,7 @@ axes, and a measured camera offset.
 ### 4. Scan
 
 1. Press the round button and hold still for 3 s.
-2. Walk at about half your normal pace. A photo is taken every 30 cm.
+2. Walk at about half your normal pace. A photo is taken every 15 cm.
 3. Turn slowly: a 90° turn should take 3 s or more.
 4. Hold the rig high and in front of you, so that you stay behind it.
 5. Follow the message at the top of the screen. The table below lists them.

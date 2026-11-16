@@ -57,7 +57,7 @@ def span_deg(mask: int) -> float:
 
 
 class ScanGuide:
-    def __init__(self, spacing_m=0.3, spacing_deg=20.0, max_turn_dps=30.0, window_s=0.5,
+    def __init__(self, spacing_m=0.15, spacing_deg=10.0, max_turn_dps=30.0, window_s=0.5,
                  cell_m=0.25, span_target_deg=30.0, min_hits=3, max_range_m=10.0,
                  caution_speed=0.8, revisit_m=5.0, revisit_after_s=40.0, near_m=0.8,
                  old_s=20.0, sample=4):

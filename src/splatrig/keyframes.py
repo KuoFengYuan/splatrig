@@ -47,7 +47,7 @@ class Candidate:
 
 
 def select_keyframes(media_times_ns, camera_start_ns: int, trajectory: Trajectory, *,
-                     spacing_m=0.3, spacing_deg=20.0, max_turn_dps=30.0,
+                     spacing_m=0.15, spacing_deg=10.0, max_turn_dps=30.0,
                      window_s=0.5) -> dict:
     """Frame indices to extract and a report of what was skipped and why."""
     if spacing_m <= 0 or spacing_deg <= 0 or max_turn_dps <= 0 or window_s < 0:
