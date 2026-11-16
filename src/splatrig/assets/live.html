@@ -394,7 +394,8 @@ async function status() {
 }
 // ---------- processing ----------
 const STAGE = {lidar: "Read LiDAR", slam: "SLAM (GLIM)", video: "MAX2 video", frames: "Choose frames",
-  assembly: "Assemble", views: "Cut views", export: "Export COLMAP", masks: "Operator masks", fit: "Fit gyroscopes"};
+  assembly: "Assemble", views: "Cut views", masks: "Operator masks", colors: "Colour points", export: "Export COLMAP",
+  fit: "Fit gyroscopes"};
 let wasRecording = false, offsetEdited = false;
 async function loadCaptures(newest) {
   try {
@@ -413,6 +414,7 @@ function renderProcess(P, recording) {
   const c = P.calibration, line = $("calib");
   if (c) { line.className = "calib " + (c.weak_axis ? "warn" : "ok");
     line.textContent = `Calibration: ${c.name}` + (c.correlation != null ? ` · gyro correlation ${c.correlation}` : "") +
+      (c.camera_offset_m ? ` · offset measured by the IMUs` : "") +
       (c.weak_axis ? " · one axis barely turned: record again turning about all three" : ""); }
   else { line.className = "calib"; line.textContent = "No calibration yet: record about 30 s turning the fixed rig about all three axes, then press Use as calibration."; }
   if (!offsetEdited) ["ox", "oy", "oz"].forEach((id, i) => { if (document.activeElement !== $(id)) $(id).value = P.camera_offset[i]; });
@@ -435,16 +437,18 @@ function renderProcess(P, recording) {
   else if (job.error) result.textContent = `Failed after ${secs} s: ${job.error}`;
   else if (job.kind === "calibrate") { const r = job.result;
     result.textContent = `Calibration saved (${secs} s): gyro correlation ${r.correlation}, residual ${(r.residual_ratio * 100).toFixed(1)}%` +
-      (r.weak_axis ? ", one axis barely turned" : "") + `. ${r.calibration}`; }
+      (r.weak_axis ? ", one axis barely turned" : "") +
+      (r.camera_offset_m ? `. Camera offset measured: ${r.camera_offset_m.map((v) => v.toFixed(3)).join(", ")} m`
+        : `. Camera offset not measured (${r.offset_note || "no estimate"}); enter it by hand`) + `. ${r.calibration}`; }
   else { const r = job.result;
     result.textContent = `Dataset ready (${secs} s): ${r.images} images from ${r.keyframes ?? "?"} frames` +
       (r.too_fast ? ` (${r.too_fast} frames skipped as too fast)` : "") + `, ${r.points?.toLocaleString() ?? "?"} points, ` +
       (r.masks ? `${r.masks} masks` : `no masks: ${r.mask_note || "off"}`) +
-      `. Provisional: the camera offset is hand-measured. ${r.dataset}`; }
+      `. Provisional: camera offset and timing are not verified against the images. ${r.dataset}`; }
 }
 function offset() { return ["ox", "oy", "oz"].map((id) => Number($(id).value)); }
 $("do-cal").addEventListener("click", () => post("/api/process/calibrate", {capture: $("cap").value})
-  .then(() => { showError(); status(); }, showError));
+  .then(() => { offsetEdited = false; showError(); status(); }, showError));
 $("do-set").addEventListener("click", () => {
   const o = offset();
   if (o.some((v) => !Number.isFinite(v))) { showError("Enter the camera offset in meters"); return; }

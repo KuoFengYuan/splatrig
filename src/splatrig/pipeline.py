@@ -143,30 +143,80 @@ def run_glim(bag: Path, config: Path, dump: Path, log: Path, domain_id: int):
         raise ValueError(f"GLIM failed (exit {code}); see {log.name}")
 
 
-def gyro_clock(capture: Path, video: Path, guess_ns: int, rotation=None) -> dict:
-    """Per-capture camera clock (and optionally rotation) from both gyroscopes."""
+STANDARD_GRAVITY = 9.80665
+
+
+def read_imus(capture: Path, video: Path) -> tuple[dict, dict]:
+    """MAX2 GPMF GYRO/ACCL and the Mid-360 IMU (gyro rad/s, accelerometer m/s^2)."""
     from .gpmf import read_imu
-    from .gyrocal import calibrate
     from .livox import IMU_TYPE, read_bag
     from .max2 import probe
     metadata = probe(video)["metadata"]
     if not metadata:
         raise ValueError(f"{video.name}: no GPMF metadata track")
-    camera = read_imu(video, metadata[0])["GYRO"]
-    times, samples = [], []
+    camera = read_imu(video, metadata[0])
+    lidar = {"times_ns": [], "gyro": [], "accel": []}
     for _, _, message in read_bag(capture / "lidar", {"/livox/imu": IMU_TYPE}):
-        times.append(message.header.stamp.sec * 1_000_000_000 + message.header.stamp.nanosec)
-        g = message.angular_velocity
-        samples.append((g.x, g.y, g.z))
-    return calibrate(camera["times_ns"], camera["samples"], times, samples, guess_ns, rotation)
+        lidar["times_ns"].append(message.header.stamp.sec * 1_000_000_000 +
+                                 message.header.stamp.nanosec)
+        g, a = message.angular_velocity, message.linear_acceleration
+        lidar["gyro"].append((g.x, g.y, g.z))
+        # The Mid-360(S) driver reports linear acceleration in g.
+        lidar["accel"].append((a.x * STANDARD_GRAVITY, a.y * STANDARD_GRAVITY,
+                               a.z * STANDARD_GRAVITY))
+    return camera, lidar
 
 
-def process_capture(capture: Path, output: Path, *, camera_offset=(0.0, 0.0, 0.0),
+def gyro_clock(capture: Path, video: Path, guess_ns: int, rotation=None, imus=None) -> dict:
+    """Per-capture camera clock (and optionally rotation) from both gyroscopes."""
+    from .gyrocal import calibrate
+    camera, lidar = imus or read_imus(capture, video)
+    return calibrate(camera["GYRO"]["times_ns"], camera["GYRO"]["samples"], lidar["times_ns"],
+                     lidar["gyro"], guess_ns, rotation)
+
+
+def camera_offset_from_imus(camera: dict, lidar: dict, result: dict,
+                            t_lidar_imu=MID360_T_LIDAR_IMU, max_half_difference_m=0.02,
+                            max_residual_ratio=0.5, min_strength=0.1) -> dict:
+    """MAX2 position in the LiDAR frame from both accelerometers (see solve_lever_arm).
+
+    The MAX2's IMU stands in for its lens center; their separation inside the
+    camera is unknown (about 1-3 cm). Returns the lever-arm diagnostics with
+    camera_offset_m, or with a reason when the fit is not trusted.
+    """
+    from .gyrocal import solve_lever_arm
+    if "ACCL" not in camera:
+        return {"camera_offset_m": None, "reason": "no MAX2 accelerometer stream"}
+    if camera["ACCL"].get("orin") != camera["GYRO"].get("orin"):
+        return {"camera_offset_m": None, "reason": "MAX2 gyro and accelerometer axes differ"}
+    try:
+        lever = solve_lever_arm(camera["ACCL"]["times_ns"], camera["ACCL"]["samples"],
+                                lidar["times_ns"], lidar["gyro"], lidar["accel"],
+                                result["offset_ns"], result["R_lidar_gpmf"])
+    except ValueError as error:
+        return {"camera_offset_m": None, "reason": str(error)}
+    # The IMU axes are the LiDAR axes (identity rotation in T_lidar_imu).
+    offset = [round(a + b, 4) for a, b in zip(t_lidar_imu[:3], lever["r_m"])]
+    problems = []
+    if lever["half_difference_m"] > max_half_difference_m:
+        problems.append(f"the two halves of the capture disagree by "
+                        f"{lever['half_difference_m'] * 100:.1f} cm")
+    if lever["residual_rms_m_s2"] > max_residual_ratio * lever["signal_rms_m_s2"]:
+        problems.append("the accelerometers do not fit a rigid mount")
+    if lever["weakest_direction_ratio"] < min_strength:
+        problems.append("one direction was barely excited; rotate about all three axes")
+    return {**lever, "camera_offset_m": None if problems else offset,
+            "estimate_m": offset, "reason": "; ".join(problems) or None,
+            "note": "MAX2 IMU position used for the lens center; their separation inside "
+                    "the camera (about 1-3 cm) is not modeled"}
+
+
+def process_capture(capture: Path, output: Path, *, camera_offset=None,
                     camera_ypr=None, calibration: Path | None = None,
                     video: Path | None = None, gopro_host: str | None = None, every=None,
                     spacing_m=0.3, spacing_deg=20.0, max_turn_dps=30.0, width=3840,
                     view_size=1024, layout="cube-no-down", min_range_m=0.6, masks=True,
-                    max_mask_fraction=0.25,
+                    max_mask_fraction=0.25, colors=True, voxel_m=0.03, max_voxels=2_000_000,
                     glim_domain=73, min_clock_correlation=0.9, progress=None) -> dict:
     """Capture folder from `splatrig live` -> provisional COLMAP dataset.
 
@@ -174,6 +224,7 @@ def process_capture(capture: Path, output: Path, *, camera_offset=(0.0, 0.0, 0.0
     within min_range_m of the LiDAR are dropped; masks/ marks the operator and mount.
     progress, if given, is called with the name of each step as it starts.
     """
+    from .colorize import colorize, session_panoramas
     from .export import export_colmap
     from .geometry import Trajectory
     from .glim import import_trajectory, to_glim_bag, write_glim_config
@@ -183,7 +234,7 @@ def process_capture(capture: Path, output: Path, *, camera_offset=(0.0, 0.0, 0.0
     from .max2 import extract, frame_times_ns, probe
     from .panorama import panorama_views
     from .selfmask import estimate, write_masks
-    from .session import prepare
+    from .session import VoxelBudget, prepare
 
     def step(name):
         if progress:
@@ -197,6 +248,15 @@ def process_capture(capture: Path, output: Path, *, camera_offset=(0.0, 0.0, 0.0
     if (camera_ypr is None) == (calibration is None):
         raise ValueError("Give exactly one of a hand-entered camera rotation or a calibration")
     rotation = read_json(calibration) if calibration else None
+    if camera_offset is None:
+        camera_offset = (rotation or {}).get("camera_offset_m")
+        if camera_offset is None:
+            raise ValueError("No camera offset: give --camera-offset, or a calibration whose "
+                             "accelerometer fit estimated it")
+        offset_source = "estimated from both accelerometers during calibration"
+    else:
+        offset_source = "entered by hand"
+    camera_offset = tuple(camera_offset)
     log = read_json(capture / "capture-log.json")
     gopro = log.get("gopro", {})
     work = output.with_name(f".{output.name}-work")
@@ -264,10 +324,9 @@ def process_capture(capture: Path, output: Path, *, camera_offset=(0.0, 0.0, 0.0
         step("views")
         steps["views"] = panorama_views(work / "session-panorama", work / "session",
                                         layout=layout, size=view_size)
-        step("export")
-        data = prepare(work / "session", allow_provisional=True)
-        export_colmap(data, work / "dataset")
-        steps["dataset"] = data.report
+        rig = read_json(work / "session-panorama/rig.json")
+        T_rig_sphere = Pose.from_dict(rig["panorama"]["T_rig_sphere"])
+        bins = None
         if masks:
             step("masks")
             found = estimate(work / "lidar/points.bin", trajectory,
@@ -275,11 +334,7 @@ def process_capture(capture: Path, output: Path, *, camera_offset=(0.0, 0.0, 0.0
             steps["self_mask"] = {k: v for k, v in found.items() if k != "bins"}
             plausible = found["sphere_fraction"] <= max_mask_fraction
             if found["bins"] and plausible:
-                rig = read_json(work / "session-panorama/rig.json")
-                steps["self_mask"].update(write_masks(
-                    work / "dataset", read_jsonl(work / "dataset/image-poses.jsonl"),
-                    data.cameras, Pose.from_dict(rig["panorama"]["T_rig_sphere"]),
-                    found["bins"]))
+                bins = found["bins"]
             else:
                 steps["self_mask"]["masks"] = 0
                 steps["self_mask"]["reason"] = (
@@ -288,9 +343,35 @@ def process_capture(capture: Path, output: Path, *, camera_offset=(0.0, 0.0, 0.0
                     f"mask would cover {found['sphere_fraction']:.0%} of the sphere, more than "
                     f"{max_mask_fraction:.0%}; nearby scene was probably taken for the rig"
                     if not plausible else "no LiDAR direction returned mostly near points")
+        step("colors")
+        try:
+            data = prepare(work / "session", allow_provisional=True, voxel_size=voxel_m,
+                           max_voxels=max_voxels)
+        except VoxelBudget:
+            data = prepare(work / "session", allow_provisional=True, voxel_size=0.05,
+                           max_voxels=max_voxels)
+            steps["voxel_fallback"] = (f"{max_voxels} voxels reached at {voxel_m} m; "
+                                       "the map uses 0.05 m voxels")
+        if colors:
+            shots = session_panoramas(work / "session-panorama", trajectory,
+                                      Clock.from_dict(read_json(work / "session-panorama/clock.json")),
+                                      T_rig_sphere,
+                                      read_jsonl(work / "session-panorama/panoramas.jsonl"))
+            data.points, steps["colors"] = colorize(data.points, data.point_times, shots,
+                                                    masked=bins)
+            data.report["point_colors"] = "from panoramas nearest in time to each closest return"
+        step("export")
+        export_colmap(data, work / "dataset")
+        steps["dataset"] = data.report
+        if bins:
+            steps["self_mask"].update(write_masks(
+                work / "dataset", read_jsonl(work / "dataset/image-poses.jsonl"),
+                data.cameras, T_rig_sphere, bins))
         summary = {"capture": str(capture), "provisional": True,
                    "dataset": str(output / "dataset"),
-                   "reasons": ["camera translation hand-measured (rig uncalibrated)",
+                   "camera_offset_m": list(camera_offset), "camera_offset_source": offset_source,
+                   "reasons": [f"camera translation {offset_source}, not verified against "
+                               "the images (rig uncalibrated)",
                                f"camera clock from {method}; exposure timing not verified"],
                    "steps": steps}
         write_json(work / "process.json", summary)
@@ -304,7 +385,8 @@ def process_capture(capture: Path, output: Path, *, camera_offset=(0.0, 0.0, 0.0
 def calibrate_capture(capture: Path, output: Path, *, video: Path | None = None,
                       gopro_host: str | None = None, min_correlation=0.95,
                       max_residual_ratio=0.1, progress=None) -> dict:
-    """Write calibration.json (rotation, this capture's clock offset, diagnostics)."""
+    """Write calibration.json: rotation, camera offset (from the accelerometers when
+    the fit is trusted), this capture's clock offset and diagnostics."""
     from .export import new_output
     from .gopro import GoPro
     capture = capture.resolve()
@@ -323,13 +405,15 @@ def calibrate_capture(capture: Path, output: Path, *, video: Path | None = None,
             GoPro(gopro_host, timeout=60).download(media[0], video)
         if progress:
             progress("fit")
-        result = gyro_clock(capture, video, gopro["start_ack_ns"])
+        imus = read_imus(capture, video)
+        result = gyro_clock(capture, video, gopro["start_ack_ns"], imus=imus)
         fit = result["fit"]
         ratio = fit["residual_rms_rad_s"] / fit["signal_rms_rad_s"]
         if result["magnitude_correlation"] < min_correlation or ratio > max_residual_ratio:
             raise ValueError(f"Gyro fit too weak (|w| correlation "
                              f"{result['magnitude_correlation']:.3f}, residual ratio {ratio:.3f}); "
                              "rotate the rig about all three axes")
+        lever = camera_offset_from_imus(*imus, result)
         if video.parent == root:
             video.unlink()
         report = {"format": "splatrig-gyro-calibration", "version": 1,
@@ -337,8 +421,10 @@ def calibrate_capture(capture: Path, output: Path, *, video: Path | None = None,
                   "offset_vs_command_ack_ms": (result["offset_ns"] - gopro["start_ack_ns"]) / 1e6,
                   "residual_ratio": ratio,
                   "weak_axis": fit["singular_value_ratios"][2] < 0.05,
-                  "scope": "rotation valid while the mount is unchanged; the clock offset "
-                           "applies to this capture only",
-                  "not_determined": ["camera translation", "exposure/rolling-shutter timing"]}
+                  "camera_offset_m": lever["camera_offset_m"], "lever_arm": lever,
+                  "scope": "rotation and camera offset valid while the mount is unchanged; "
+                           "the clock offset applies to this capture only",
+                  "not_determined": ["MAX2 IMU-to-lens separation inside the camera",
+                                     "exposure/rolling-shutter timing"]}
         write_json(root / "calibration.json", report)
     return report

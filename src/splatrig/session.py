@@ -117,6 +117,12 @@ class Prepared:
     frames: list[dict]
     points: list[tuple]
     report: dict
+    # Per point: the time of its closest LiDAR return (for colouring from images).
+    point_times: list[int] | None = None
+
+
+class VoxelBudget(ValueError):
+    """The occupied-voxel budget was reached; nothing was discarded silently."""
 
 
 def prepare(root: Path, *, allow_provisional=False, voxel_size=0.05,
@@ -189,20 +195,24 @@ def prepare(root: Path, *, allow_provisional=False, voxel_size=0.05,
         key = tuple(math.floor(v / voxel_size) for v in point)
         if key not in voxels:
             if len(voxels) >= max_voxels:
-                raise ValueError("Voxel budget reached; increase voxel size or max_voxels")
-            voxels[key] = [0.0, 0.0, 0.0, 0, 0, 0, 0]
+                raise VoxelBudget("Voxel budget reached; increase voxel size or max_voxels")
+            voxels[key] = [0.0, 0.0, 0.0, 0, 0, 0, 0, math.inf, timestamp]
         total = voxels[key]
         for i, value in enumerate((*point, *rgb)):
             total[i] += value
         total[6] += 1
+        reach = xyz[0] * xyz[0] + xyz[1] * xyz[1] + xyz[2] * xyz[2]
+        if reach < total[7]:
+            total[7], total[8] = reach, timestamp
         raw_count += 1
     if not raw_count:
         raise ValueError("Session has no LiDAR points")
-    points = []
+    points, point_times = [], []
     for total in voxels.values():
         count = total[6]
         points.append(tuple(v/count for v in total[:3]) +
                       tuple(round(v/count) for v in total[3:6]))
+        point_times.append(total[8])
     gaps = [b-a for a, b in zip(trajectory.times, trajectory.times[1:])]
     report = {"schema_version": 1, "source": meta["source"],
               "synthetic": meta["source"] == "synthetic",
@@ -218,4 +228,4 @@ def prepare(root: Path, *, allow_provisional=False, voxel_size=0.05,
                                        else "supplied_by_external_backend",
               "slam_executed_by_core": False,
               "sparse_model": "initialization_only_no_observation_tracks"}
-    return Prepared(root, cameras, frames, points, report)
+    return Prepared(root, cameras, frames, points, report, point_times)

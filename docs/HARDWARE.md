@@ -31,8 +31,9 @@ Use the power requirements in each device's manual.
 
 The MID-360 has 360° horizontal and 59° vertical coverage. MAX2's visible sphere is
 larger than the LiDAR depth coverage. Missing depth must stay invalid; plan height
-and tilt changes for coverage. Initially visualize intensity/height point clouds;
-precise RGB coloring depends on camera timing and visibility.
+and tilt changes for coverage. The live view colors points by height or
+intensity; datasets take point colors from the panoramas (see dataset quality
+steps), which depends on camera timing and has no occlusion test.
 
 ## MID-360 and GLIM
 
@@ -308,7 +309,7 @@ establish accuracy while moving.
 --camera-ypr YAW PITCH ROLL` turns a folder recorded by `live` into a COLMAP dataset:
 LiDAR import, GLIM bag and configuration, an offline GLIM run on ROS domain 73,
 trajectory import, download of the new MAX2 `.360` file, frame choice, panorama
-extraction, session assembly, views, export and masks. Work happens in a hidden
+extraction, session assembly, views, masks, point colours and export. Work happens in a hidden
 directory that is renamed only after success (`.<run>-failed` is kept for inspection
 otherwise). Each step's name is printed to stderr as it starts.
 
@@ -362,6 +363,19 @@ ambiguous (peaks 0.215 at −25° and 0.208 at −135°) and is not used.
     corridor walked straight can still be mistaken for the rig.
   - `process.json` (`self_mask`) states why no masks were written.
   - `--no-masks` turns masks off.
+- **Point colours.** The map is built with 3 cm voxels, falling back to 5 cm if
+  2 million voxels are reached; the fallback is reported. Each voxel remembers the
+  time of its closest LiDAR return. Its colour is taken from the panorama nearest
+  in time; if the point's direction is masked, or it is within 0.3 m of the camera,
+  the next of up to four panoramas within 5 s is tried. Colours are sampled at
+  2048 px width. `points.ply` and `points3D` carry the colours.
+  - There is no occlusion test beyond choosing the panorama nearest in time.
+  - Exposure differences between panoramas are not equalized.
+  - `--no-colors` keeps the old gray.
+  - On the 2026-11-16 rotation capture, 159,768 of 160,468 points were coloured
+    (median 0.63 s from their panorama). The whole run took 70 s. Rendering the
+    coloured cloud from two keyframe poses matched the photographs: lamps,
+    monitors and partitions in place.
 
 Re-run on the 26 s gyro-rotation capture with its calibration, the whole pipeline
 took 41 s:
@@ -410,7 +424,27 @@ identity throughout, so the stored image orientation is fixed to the camera.
 `process-capture --calibration calibration.json` uses that rotation and re-runs
 the |ω| correlation on every capture for its own clock offset, falling back to
 the record-command time (and saying so) when the correlation is below 0.9.
-Translation is still hand-entered (`--camera-offset`), so output stays provisional.
+The camera offset comes from the same capture's accelerometers. On a rigid
+mount, the specific forces at two points differ by α×r + ω×(ω×r); gravity and the
+rig's own acceleration cancel. Both accelerometers are box-averaged over ±15 ms,
+the MAX2's is rotated into LiDAR axes and shifted by the clock offset, α is a
+central difference of the Mid-360 gyro, and r (MAX2 IMU minus Mid-360 IMU) is
+solved by least squares with a constant bias difference. The camera offset is r
+plus the Mid-360 IMU position in the LiDAR frame.
+
+The fit is trusted only when:
+- each half of the capture gives an r within 2 cm of the other,
+- the residual is under half of the signal, and
+- every direction was excited.
+
+Otherwise `camera_offset_m` stays null with the reason in `lever_arm.reason`.
+`process-capture` uses `camera_offset_m` when `--camera-offset` is not given. The
+console fills it in after **Use as calibration**. Two things remain unmodeled and
+keep output provisional:
+- the MAX2 IMU stands in for the lens center, and their separation inside the camera
+  (about 1–3 cm) is unknown;
+- the Mid-360 IMU position is the published Mid-360 value, not verified for the
+  Mid-360S.
 
 Measured on the first mount: |ω| correlation 0.9996, residual 2.2% of the signal
 RMS, camera media time 95.8 ms after the record-command acknowledgement; the
@@ -418,6 +452,21 @@ weakest axis was barely excited (singular value ratio 0.013). On synthetic data
 the method recovers the offset within 0.2 ms and the rotation within 0.04°.
 Reprojected LiDAR depth edges stayed on static structures across the rotation by
 visual inspection; this is not a quantified accuracy.
+
+Second mount (2026-11-16, 35 s rotation):
+- Gyroscopes: |ω| correlation 0.998, residual 4.5%, weakest axis 0.081.
+- Camera offset (−0.073, 0.020, 0.074) m: the MAX2 sits behind and above the LiDAR.
+  - The two halves agree within 3.6 mm.
+  - The accelerometer residual is 0.065 of 0.259 m/s² RMS.
+  - Direction strength is 0.90.
+- Independent check against the panoramas:
+  - Method: LiDAR depth edges within 4 m were projected into all 14 keyframe
+    panoramas, scoring image gradient at the edges.
+  - Scores: 2.44 with this offset, 2.17 for "straight above" (0, 0, 0.083) and
+    1.56 for zero.
+  - A 2 cm grid search peaked at (−0.08, 0.02, 0.10). That agrees in X and Y; Z is
+    2.6 cm higher, which is within the unmodeled IMU-to-lens separation.
+- On a simulated rigid rotation the solver recovers r within 3 mm.
 
 ## Primary references
 

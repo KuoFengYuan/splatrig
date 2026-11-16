@@ -76,7 +76,8 @@ tools/splatrig-ros start    # 啟動 driver、介面與 GLIM，開啟瀏覽器
 
 1. 每次固定方式改變後做一次：錄一段約 30 秒、拿著固定好的設備繞三個軸轉動的影片，
    選取它並按 **Use as calibration**。
-2. 選取掃描錄影，輸入 MAX2 鏡頭相對 LiDAR 的位置（公尺），按 **Make 3DGS dataset**。
+   這一步也會量出 MAX2 相對 LiDAR 的位置。
+2. 選取掃描錄影，按 **Make 3DGS dataset**。
 
 結果放在 `~/splatrig-runs/`，介面會記住校正檔與位移。也可以在終端機執行：
 
@@ -85,10 +86,10 @@ tools/splatrig-ros start    # 啟動 driver、介面與 GLIM，開啟瀏覽器
 tools/splatrig-ros calibrate-gyro ~/captures/<旋轉錄影> --output runs/calibration
 
 tools/splatrig-ros process-capture ~/captures/<錄影> --output runs/<名稱> \
-  --calibration runs/calibration/calibration.json --camera-offset 0 0 0.083
+  --calibration runs/calibration/calibration.json
 ```
 
-輸出資料夾是 COLMAP 格式（`images/`、`sparse/0/`、`points.ply`；能估計操作者時另有 `masks/`）。
+輸出資料夾是 COLMAP 格式（`images/`、`sparse/0/`、有顏色的 `points.ply`；能估計操作者時另有 `masks/`）。
 
 ## 沒有硬體時
 

@@ -129,8 +129,9 @@ def parser():
         "process-capture", help="Capture folder from `live` -> provisional COLMAP dataset (ROS 2, GLIM)")
     process.add_argument("capture", type=Path)
     process.add_argument("--output", type=Path, required=True)
-    process.add_argument("--camera-offset", type=float, nargs=3, default=(0.0, 0.0, 0.0),
-                         metavar=("X", "Y", "Z"), help="MAX2 center in the LiDAR frame, meters")
+    process.add_argument("--camera-offset", type=float, nargs=3, metavar=("X", "Y", "Z"),
+                         help="MAX2 center in the LiDAR frame, meters (default: the "
+                              "calibration's accelerometer estimate)")
     rotation = process.add_mutually_exclusive_group(required=True)
     rotation.add_argument("--camera-ypr", type=float, nargs=3, metavar=("YAW", "PITCH", "ROLL"),
                           help="Hand-entered MAX2 front relative to LiDAR +X, degrees")
@@ -149,6 +150,10 @@ def parser():
                          help="Drop LiDAR points closer than this to the sensor, meters")
     process.add_argument("--no-masks", action="store_true",
                          help="Do not write masks/ for the operator and the mount")
+    process.add_argument("--no-colors", action="store_true",
+                         help="Keep map points gray instead of colouring them from the panoramas")
+    process.add_argument("--voxel", type=float, default=0.03,
+                         help="Map point spacing for 3DGS initialization, meters")
     process.add_argument("--width", type=int, default=3840)
     process.add_argument("--size", type=int, default=1024)
     process.add_argument("--layout", choices=sorted(PRESETS), default="cube-no-down")
@@ -229,12 +234,14 @@ def main(argv=None):
             host = detect_camera() if args.gopro == "auto" else (
                 None if args.gopro == "none" else args.gopro)
             report = process_capture(args.capture, args.output,
-                                     camera_offset=tuple(args.camera_offset),
+                                     camera_offset=tuple(args.camera_offset)
+                                     if args.camera_offset else None,
                                      camera_ypr=tuple(args.camera_ypr) if args.camera_ypr else None,
                                      calibration=args.calibration, video=args.video,
                                      gopro_host=host, every=args.every, spacing_m=args.spacing,
                                      spacing_deg=args.spacing_deg, max_turn_dps=args.max_turn,
                                      min_range_m=args.min_range, masks=not args.no_masks,
+                                     colors=not args.no_colors, voxel_m=args.voxel,
                                      width=args.width, view_size=args.size, layout=args.layout,
                                      progress=lambda name: print(f"[{name}]", file=sys.stderr,
                                                                  flush=True))
