@@ -32,16 +32,27 @@ HALF = 960
 OVERLAP = 64
 
 
-def eac_graph(width: int) -> str:
-    """ffmpeg filter graph: two MAX2 tracks -> equirectangular [out] of width x width/2."""
+def select_expression(frames) -> str:
+    """ffmpeg select expression (commas escaped for a filter graph) for frame indices."""
+    return "+".join(f"eq(n\\,{index})" for index in frames)
+
+
+def eac_graph(width: int, select: str | None = None) -> str:
+    """ffmpeg filter graph: two MAX2 tracks -> equirectangular [out] of width x width/2.
+
+    `select` picks frames by index on each track before any crop or projection, so
+    unselected frames are only decoded.
+    """
+    pick = f"select='{select}'," if select else ""
+
     def row(stream, tag):
         left = f"[{tag}0]crop={HALF}:{FACE}:0:0[{tag}l0];[{tag}1]crop={HALF}:{FACE}:{HALF + OVERLAP}:0[{tag}l1]"
         center = f"[{tag}2]crop={FACE}:{FACE}:{FACE + OVERLAP}:0[{tag}c]"
         right_x = 2 * FACE + OVERLAP
         right = (f"[{tag}3]crop={HALF}:{FACE}:{right_x}:0[{tag}r0];"
                  f"[{tag}4]crop={HALF}:{FACE}:{right_x + HALF + OVERLAP}:0[{tag}r1]")
-        return (f"[0:v:{stream}]split=5[{tag}0][{tag}1][{tag}2][{tag}3][{tag}4];{left};{center};"
-                f"{right};[{tag}l0][{tag}l1]hstack[{tag}L];[{tag}r0][{tag}r1]hstack[{tag}R];"
+        return (f"[0:v:{stream}]{pick}split=5[{tag}0][{tag}1][{tag}2][{tag}3][{tag}4];{left};"
+                f"{center};{right};[{tag}l0][{tag}l1]hstack[{tag}L];[{tag}r0][{tag}r1]hstack[{tag}R];"
                 f"[{tag}L][{tag}c][{tag}R]hstack=3[{tag}row]")
     return (f"{row(0, 'a')};{row(1, 'b')};[arow][brow]vstack[eac];"
             f"[eac]v360=input=eac:output=e:w={width}:h={width // 2}")
@@ -69,21 +80,30 @@ def frame_times_ns(path: Path, stream_index: int, time_base: str, ffprobe="ffpro
     return [round((value - pts[0]) * base * 1_000_000_000) for value in pts]
 
 
-def extract(path: Path, destination: Path, *, every: int = 15, width: int = 3840,
-            image_format="jpg", first_id: int = 1, ffmpeg="ffmpeg", ffprobe="ffprobe") -> dict:
-    """Decode every Nth original frame; write panoramas and panoramas.jsonl."""
+def extract(path: Path, destination: Path, *, every: int = 15, frames=None, width: int = 3840,
+            image_format="jpg", first_id: int = 1, ffmpeg="ffmpeg", ffprobe="ffprobe",
+            times: list[int] | None = None) -> dict:
+    """Decode every Nth original frame, or the listed frame indices; write panoramas.jsonl."""
     if every < 1 or width < 256 or width % 2 or image_format not in {"jpg", "png"}:
         raise ValueError("Use every >= 1, an even width >= 256 and jpg or png output")
     info = probe(path, ffprobe)
     track = info["video"][0]
-    times = frame_times_ns(path, track["index"], track["time_base"], ffprobe)
-    selected = list(range(0, len(times), every))
+    if times is None:
+        times = frame_times_ns(path, track["index"], track["time_base"], ffprobe)
+    if frames is None:
+        selected = list(range(0, len(times), every))
+        expression = f"not(mod(n\\,{every}))"
+    else:
+        selected = sorted(set(frames))
+        if not selected or selected[0] < 0 or selected[-1] >= len(times):
+            raise ValueError(f"Frame indices must lie in 0..{len(times) - 1}")
+        expression = select_expression(selected)
     with new_output(destination, path.parent) as root:
         (root / "images").mkdir()
         pattern = root / "images" / f"panorama_%06d.{image_format}"
         quality = ["-q:v", "2"] if image_format == "jpg" else []
         run_tool([ffmpeg, "-v", "error", "-nostdin", "-i", str(path), "-filter_complex",
-                  eac_graph(width) + f",select='not(mod(n\\,{every}))'[out]", "-map", "[out]",
+                  eac_graph(width, expression) + "[out]", "-map", "[out]",
                   "-fps_mode", "passthrough", *quality, "-start_number", "1", str(pattern)])
         written = sorted((root / "images").glob(f"panorama_*.{image_format}"))
         if len(written) != len(selected):
@@ -93,7 +113,8 @@ def extract(path: Path, destination: Path, *, every: int = 15, width: int = 3840
                    for index, (frame, image) in enumerate(zip(selected, written))]
         write_jsonl(root / "panoramas.jsonl", records)
         report = {"source": str(path.resolve()), "track_frames": len(times),
-                  "every_nth_frame": every, "panoramas": len(records), "width": width,
+                  "every_nth_frame": every if frames is None else None,
+                  "panoramas": len(records), "width": width,
                   "clock": "camera media time, ns from the first video frame",
                   "metadata_streams": info["metadata"],
                   "limitations": ["hard cut at lens midline: near-object stitching parallax",

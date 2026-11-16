@@ -84,7 +84,8 @@ tools/splatrig-ros process-capture ~/captures/<capture> --output runs/<name> \
   --calibration runs/calibration/calibration.json --camera-offset 0 0 0.083
 ```
 
-The output folder is COLMAP layout (`images/`, `sparse/0/`, `points.ply`).
+The output folder is COLMAP layout (`images/`, `sparse/0/`, `points.ply`, and `masks/`
+when the operator could be estimated).
 
 ## Without hardware
 

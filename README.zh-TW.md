@@ -82,7 +82,7 @@ tools/splatrig-ros process-capture ~/captures/<錄影> --output runs/<名稱> \
   --calibration runs/calibration/calibration.json --camera-offset 0 0 0.083
 ```
 
-輸出資料夾是 COLMAP 格式（`images/`、`sparse/0/`、`points.ply`）。
+輸出資料夾是 COLMAP 格式（`images/`、`sparse/0/`、`points.ply`；能估計操作者時另有 `masks/`）。
 
 ## 沒有硬體時
 

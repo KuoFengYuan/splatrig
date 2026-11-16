@@ -227,6 +227,9 @@ Voxel replay has a configurable occupied-voxel budget; it fails explicitly when
 full. It is not a streaming, unlimited city-scale mapper. Trajectory and frame
 records are loaded into memory. The preview embeds at most 20,000 sampled points.
 
-Per-camera depth, masks, raw .360/EAC decoding, feature tracks, image-quality
-metrics and trainer execution are future milestones. LiDAR range must be transformed
+`process-capture` may add `masks/<image name>` (8-bit grayscale, 0 = ignore,
+255 = use, image size) for the operator and the mount; see
+[hardware integration](HARDWARE.md#dataset-quality-steps) for how they are estimated.
+Per-camera depth, feature tracks, measured image-quality metrics and trainer
+execution are future milestones. LiDAR range must be transformed
 to camera Z depth with visibility masking before any depth-supervision integration.

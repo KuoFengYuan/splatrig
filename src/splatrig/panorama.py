@@ -27,6 +27,8 @@ PRESETS = {
              ("up", 0, 90), ("down", 0, -90)],
     "ring8": [(f"yaw{angle:03d}", angle, 0) for angle in range(0, 360, 45)],
 }
+# The downward view of a handheld rig shows the mount and the operator's hands.
+PRESETS["cube-no-down"] = [view for view in PRESETS["cube"] if view[0] != "down"]
 INTERPOLATIONS = ("line", "cubic", "lanczos")
 # Measured v360 bilinear noise is about 0.4 input pixels at worst with no mean bias;
 # a half-pixel or axis convention error exceeds these limits.

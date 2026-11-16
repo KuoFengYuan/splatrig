@@ -47,7 +47,10 @@ def lidar_sphere(offset, yaw_deg=0.0, pitch_deg=0.0, roll_deg=0.0) -> Pose:
 def build_session(destination: Path, *, recording: Path, trajectory: Path, panoramas: Path,
                   camera_start_ns: int, camera_offset=(0.0, 0.0, 0.0), camera_ypr=(0.0, 0.0, 0.0),
                   camera_rotation_wxyz=None, clock_method="record-command acknowledgement",
-                  t_lidar_imu=MID360_T_LIDAR_IMU, max_pose_gap_ns=200_000_000) -> dict:
+                  t_lidar_imu=MID360_T_LIDAR_IMU, max_pose_gap_ns=200_000_000,
+                  min_range_m=0.0) -> dict:
+    """Session from a recording, trajectory and panoramas; points closer than
+    min_range_m to the LiDAR (the operator, the mount) are left out and counted."""
     source = read_json(trajectory / "trajectory-source.json")
     poses = list(read_jsonl(trajectory / "trajectory.jsonl"))
     first, last = poses[0]["timestamp_ns"], poses[-1]["timestamp_ns"]
@@ -64,16 +67,20 @@ def build_session(destination: Path, *, recording: Path, trajectory: Path, panor
         if resolved == source_dir.resolve() or resolved.is_relative_to(source_dir.resolve()):
             raise ValueError("Output must be outside every input directory")
     with new_output(destination, recording) as root:
-        before = after = kept = 0
+        before = after = kept = near = 0
+        near_squared = min_range_m ** 2
         header, _, _ = read_header(recording / "points.bin")
         with PointLogWriter(root / "points.bin", {**{k: v for k, v in header.items()
                                                      if k not in {"record_bytes", "fields"}},
-                                                  "trimmed_to_trajectory": [first, last]}) as out:
+                                                  "trimmed_to_trajectory": [first, last],
+                                                  "min_range_m": min_range_m}) as out:
             for point in iter_points(recording / "points.bin"):
                 if point[0] < first:
                     before += 1
                 elif point[0] > last:
                     after += 1
+                elif point[1] * point[1] + point[2] * point[2] + point[3] * point[3] < near_squared:
+                    near += 1
                 else:
                     out.write(*point)
                     kept += 1
@@ -111,6 +118,7 @@ def build_session(destination: Path, *, recording: Path, trajectory: Path, panor
                   "camera_start_ns": camera_start_ns,
                   "trajectory_ns": [first, last], "lidar_clock": lidar_report["clock"]["status"],
                   "points_kept": kept, "points_before_trajectory": before,
+                  "min_range_m": min_range_m, "points_near_sensor": near,
                   "points_after_trajectory": after, "panoramas_kept": len(frames),
                   "panoramas_outside_trajectory": outside}
         write_json(root / "assembly.json", report)
@@ -155,17 +163,31 @@ def gyro_clock(capture: Path, video: Path, guess_ns: int, rotation=None) -> dict
 
 def process_capture(capture: Path, output: Path, *, camera_offset=(0.0, 0.0, 0.0),
                     camera_ypr=None, calibration: Path | None = None,
-                    video: Path | None = None, gopro_host: str | None = None, every=15,
-                    width=3840, view_size=1024, layout="cube", glim_domain=73,
-                    min_clock_correlation=0.9) -> dict:
-    """Capture folder from `splatrig live` -> provisional COLMAP dataset."""
+                    video: Path | None = None, gopro_host: str | None = None, every=None,
+                    spacing_m=0.3, spacing_deg=20.0, max_turn_dps=30.0, width=3840,
+                    view_size=1024, layout="cube-no-down", min_range_m=0.6, masks=True,
+                    max_mask_fraction=0.25,
+                    glim_domain=73, min_clock_correlation=0.9, progress=None) -> dict:
+    """Capture folder from `splatrig live` -> provisional COLMAP dataset.
+
+    Frames are chosen along the trajectory (every=None) or every Nth frame; points
+    within min_range_m of the LiDAR are dropped; masks/ marks the operator and mount.
+    progress, if given, is called with the name of each step as it starts.
+    """
     from .export import export_colmap
+    from .geometry import Trajectory
     from .glim import import_trajectory, to_glim_bag, write_glim_config
     from .gopro import GoPro
+    from .keyframes import select_keyframes
     from .livox import import_livox
-    from .max2 import extract
+    from .max2 import extract, frame_times_ns, probe
     from .panorama import panorama_views
+    from .selfmask import estimate, write_masks
     from .session import prepare
+
+    def step(name):
+        if progress:
+            progress(name)
 
     capture, output = capture.resolve(), output.resolve()
     if output.exists():
@@ -183,7 +205,9 @@ def process_capture(capture: Path, output: Path, *, camera_offset=(0.0, 0.0, 0.0
     work.mkdir(parents=True)
     steps = {}
     try:
+        step("lidar")
         steps["lidar"] = import_livox(capture / "lidar", work / "lidar")
+        step("slam")
         steps["glim_bag"] = to_glim_bag(capture / "lidar", work / "glim-input")
         write_glim_config(work / "glim-config")
         run_glim(work / "glim-input/bag", work / "glim-config", work / "glim-dump",
@@ -191,6 +215,8 @@ def process_capture(capture: Path, output: Path, *, camera_offset=(0.0, 0.0, 0.0
         steps["trajectory"] = import_trajectory(work / "glim-dump/traj_imu.txt",
                                                 work / "trajectory", revision=1,
                                                 status="final", frame="imu")
+        trajectory = Trajectory(read_jsonl(work / "trajectory/trajectory.jsonl"))
+        step("video")
         if video is None:
             media = [name for name in gopro.get("new_media", []) if name.endswith(".360")]
             if len(media) != 1:
@@ -214,18 +240,54 @@ def process_capture(capture: Path, output: Path, *, camera_offset=(0.0, 0.0, 0.0
                 steps["gyro_clock"]["unused"] = "correlation too low (too little rotation?)"
         except ValueError as error:
             steps["gyro_clock"] = {"unused": str(error)}
-        steps["panoramas"] = extract(video, work / "panoramas", every=every, width=width)
+        step("frames")
+        frames = times = None
+        if every is None:
+            track = probe(video)["video"][0]
+            times = frame_times_ns(video, track["index"], track["time_base"])
+            chosen = select_keyframes(times, camera_start, trajectory, spacing_m=spacing_m,
+                                      spacing_deg=spacing_deg, max_turn_dps=max_turn_dps)
+            steps["keyframes"] = chosen["report"]
+            if not chosen["frames"]:
+                raise ValueError("No video frame is inside the trajectory and turning slowly "
+                                 "enough; check the camera clock or pass --every")
+            frames = chosen["frames"]
+        steps["panoramas"] = extract(video, work / "panoramas", every=every or 1, frames=frames,
+                                     width=width, times=times)
+        step("assembly")
         steps["assembly"] = build_session(
             work / "session-panorama", recording=work / "lidar", trajectory=work / "trajectory",
             panoramas=work / "panoramas", camera_start_ns=camera_start,
             camera_offset=camera_offset, camera_ypr=camera_ypr or (0.0, 0.0, 0.0),
             camera_rotation_wxyz=rotation["q_lidar_sphere_wxyz"] if rotation else None,
-            clock_method=method)
+            clock_method=method, min_range_m=min_range_m)
+        step("views")
         steps["views"] = panorama_views(work / "session-panorama", work / "session",
                                         layout=layout, size=view_size)
+        step("export")
         data = prepare(work / "session", allow_provisional=True)
         export_colmap(data, work / "dataset")
         steps["dataset"] = data.report
+        if masks:
+            step("masks")
+            found = estimate(work / "lidar/points.bin", trajectory,
+                             Pose.from_dict(steps["assembly"]["T_lidar_sphere"]))
+            steps["self_mask"] = {k: v for k, v in found.items() if k != "bins"}
+            plausible = found["sphere_fraction"] <= max_mask_fraction
+            if found["bins"] and plausible:
+                rig = read_json(work / "session-panorama/rig.json")
+                steps["self_mask"].update(write_masks(
+                    work / "dataset", read_jsonl(work / "dataset/image-poses.jsonl"),
+                    data.cameras, Pose.from_dict(rig["panorama"]["T_rig_sphere"]),
+                    found["bins"]))
+            else:
+                steps["self_mask"]["masks"] = 0
+                steps["self_mask"]["reason"] = (
+                    f"rig travelled {found['motion_extent_m']} m while moving, under "
+                    f"{found['min_extent_m']} m" if not found["estimated"] else
+                    f"mask would cover {found['sphere_fraction']:.0%} of the sphere, more than "
+                    f"{max_mask_fraction:.0%}; nearby scene was probably taken for the rig"
+                    if not plausible else "no LiDAR direction returned mostly near points")
         summary = {"capture": str(capture), "provisional": True,
                    "dataset": str(output / "dataset"),
                    "reasons": ["camera translation hand-measured (rig uncalibrated)",
