@@ -37,6 +37,7 @@ class FakeJobs:
         self.release = threading.Event()
         self.release.set()
         self.calls = []
+        self.measured = None
 
     def calibrate(self, capture, output, *, gopro_host=None, progress=None):
         self.calls.append(("calibrate", capture.name, output.name, gopro_host))
@@ -45,7 +46,8 @@ class FakeJobs:
         progress("fit")
         output.mkdir()
         report = {"magnitude_correlation": 0.99831, "residual_ratio": 0.0445,
-                  "weak_axis": False, "offset_vs_command_ack_ms": 95.83}
+                  "weak_axis": False, "offset_vs_command_ack_ms": 95.83,
+                  "camera_offset_m": self.measured}
         (output / "calibration.json").write_text(json.dumps(report))
         return report
 
@@ -150,6 +152,20 @@ class ProcessorTests(unittest.TestCase):
         restarted = Processor(self.captures, self.root)
         self.assertEqual(restarted.calibration(), calibration)
         self.assertEqual(restarted.settings["camera_offset"], [0.0, 0.0, 0.083])
+
+    def test_measured_offset_is_filled_in_and_passed_as_measured(self):
+        capture(self.captures, "capture-rot")
+        capture(self.captures, "capture-scan")
+        self.jobs.measured = [-0.081, 0.0199, 0.0816]
+        self.processor.start("calibrate", "capture-rot")
+        wait(self.processor)
+        self.assertEqual(self.processor.settings["camera_offset"], [-0.081, 0.0199, 0.0816])
+        self.processor.start("dataset", "capture-scan", [-0.081, 0.0199, 0.0816])
+        wait(self.processor)
+        self.assertIsNone(self.jobs.calls[-1][4])  # recorded as measured, not hand-entered
+        self.processor.start("dataset", "capture-scan", [0, 0, 0.1])
+        wait(self.processor)
+        self.assertEqual(self.jobs.calls[-1][4], (0.0, 0.0, 0.1))
 
     def test_failure_is_reported_and_settings_unchanged(self):
         capture(self.captures, "capture-rot")

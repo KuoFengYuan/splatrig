@@ -140,9 +140,9 @@ def parser():
     process.add_argument("--gopro", default="auto", help="Camera IP, 'auto' or 'none'")
     process.add_argument("--every", type=int,
                          help="Keep every Nth frame instead of choosing frames along the route")
-    process.add_argument("--spacing", type=float, default=0.3,
+    process.add_argument("--spacing", type=float, default=0.15,
                          help="Take a frame each time the rig moved this far, meters")
-    process.add_argument("--spacing-deg", type=float, default=20.0,
+    process.add_argument("--spacing-deg", type=float, default=10.0,
                          help="... or turned this far, degrees")
     process.add_argument("--max-turn", type=float, default=30.0,
                          help="Never keep a frame turning faster than this (blur), degrees/s")

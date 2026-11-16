@@ -214,7 +214,7 @@ def camera_offset_from_imus(camera: dict, lidar: dict, result: dict,
 def process_capture(capture: Path, output: Path, *, camera_offset=None,
                     camera_ypr=None, calibration: Path | None = None,
                     video: Path | None = None, gopro_host: str | None = None, every=None,
-                    spacing_m=0.3, spacing_deg=20.0, max_turn_dps=30.0, width=3840,
+                    spacing_m=0.15, spacing_deg=10.0, max_turn_dps=30.0, width=3840,
                     view_size=1024, layout="cube-no-down", min_range_m=0.6, masks=True,
                     max_mask_fraction=0.25, colors=True, voxel_m=0.03, max_voxels=2_000_000,
                     glim_domain=73, min_clock_correlation=0.9, progress=None) -> dict:
