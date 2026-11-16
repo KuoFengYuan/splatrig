@@ -71,18 +71,25 @@ tools/splatrig-ros doctor   # check the machine, list what is missing
 tools/splatrig-ros start    # start driver, console and GLIM, open the browser
 ```
 
-Or click "SplatRig" in the application menu. Press Record in the page to record;
-Ctrl+C to quit.
+Or click "SplatRig" in the application menu. Ctrl+C quits.
 
-After recording, use the page's **Process a capture** panel:
+The page works like a phone scanning app:
 
-1. Once per mount: record about 30 s turning the fixed rig about all three axes,
-   select it and press **Use as calibration**.
+- Press the round button to start scanning and press it again to stop.
+- While you scan, the top of the screen shows the time and one hint at a time:
+  slow down, turning too fast, return to a scanned area.
+- The ring around the button and **Coverage** show how much has been seen from
+  several directions.
+
+After you stop, a panel shows the scan's summary:
+
+1. Once per mount: record about 30 s turning the fixed rig about all three axes and
+   press **Use as calibration**.
    This also measures where the MAX2 sits relative to the LiDAR.
-2. Select a scan and press **Make 3DGS dataset**.
+2. For a scan, press **Make 3DGS dataset**.
 
-Results go to `~/splatrig-runs/`. The console remembers the calibration and offset.
-The same from a terminal:
+**Captures** lists earlier recordings. Results go to `~/splatrig-runs/`. The console
+remembers the calibration and offset. The same from a terminal:
 
 ```sh
 # Once per mount: record ~30 s turning the rig about all three axes

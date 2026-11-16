@@ -62,7 +62,8 @@ after agreeing on what capture data can be released.
   A localhost console shows the live cloud, MAX2 preview and status and records
   both devices; with `--slam` it adds a live GLIM route, pose, camera axis and voxel
   map preview. Calibration and dataset processing start from the same page.
-  Coverage feedback is not implemented.
+  Coverage feedback, motion warnings and revisit prompts follow the dataset's photo
+  rule; they are predictions, not measured image quality.
 - Bounded map storage, status/recovery and reproducible installation.
 - AnyReplica external-scan adapter for review/training, with explicit axes/units.
 - Demonstration footage from physical hardware, calibration records and a sample.

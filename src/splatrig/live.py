@@ -24,6 +24,7 @@ from .gopro import GoPro, PreviewDecoder
 from .livox import assess_clock
 from .liveslam import GLIM_POINTS_TOPIC, GlimProcess, SlamState, cloud_points
 from .processing import Processor
+from .scanguide import ScanGuide
 from .rosview import POINT, pack_points, ros_import_error, use_dds_profile
 
 WINDOW_FRAMES = 10
@@ -269,7 +270,7 @@ class Recorder:
 
 def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
                  slam: SlamState | None = None, glim: GlimProcess | None = None,
-                 processor: Processor | None = None):
+                 processor: Processor | None = None, guide: ScanGuide | None = None):
     page = ASSET.read_bytes()
 
     class Handler(BaseHTTPRequestHandler):
@@ -313,7 +314,10 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
                 self.send_json(200, {"time_ns": time.time_ns(), "lidar": lidar.status(),
                                      "camera": camera.status(), "record": recorder.status(),
                                      "slam": slam_status,
-                                     "process": processor.status() if processor else None})
+                                     "process": processor.status() if processor else None,
+                                     "guide": guide.status() if guide else None})
+            elif path == "/api/guide/cells" and guide is not None:
+                self.send(200, guide.cells_payload(), "application/octet-stream")
             elif path == "/api/captures" and processor is not None:
                 self.send_json(200, processor.list_captures())
             elif path == "/api/map" and slam is not None:
@@ -373,6 +377,10 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
                 return
             try:
                 result = action()
+                if guide is not None and path == "/api/record/start":
+                    guide.start()
+                elif guide is not None and path == "/api/record/stop":
+                    guide.stop()
                 self.send_json(200, result if isinstance(result, dict) else {"ok": True})
             except (ValueError, OSError) as error:
                 self.send_json(409, {"error": str(error)})
@@ -400,7 +408,7 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
 
 
 def start_ros(lidar: LidarState, lidar_topic: str, imu_topic: str,
-              slam: SlamState | None = None):
+              slam: SlamState | None = None, guide: ScanGuide | None = None):
     use_dds_profile()  # also inherited by the ros2 bag record subprocess
     try:
         import rclpy
@@ -436,6 +444,8 @@ def start_ros(lidar: LidarState, lidar_topic: str, imu_topic: str,
         def odometry(message):
             p, q = message.pose.pose.position, message.pose.pose.orientation
             slam.add_odometry((p.x, p.y, p.z), (q.w, q.x, q.y, q.z))
+            if guide is not None:
+                guide.add_pose((p.x, p.y, p.z), (q.w, q.x, q.y, q.z), scan=slam.latest_points)
         node.create_subscription(Odometry, "/glim_ros/odom_corrected", odometry, 10)
         node.create_subscription(PointCloud2, "/glim_ros/aligned_points_corrected",
                                  lambda message: slam.add_scan(cloud_points(message)), 10)
@@ -502,13 +512,15 @@ def serve(port: int, captures: Path, gopro_host: str | None, lidar_topic: str,
         def remount(path, offset):
             slam.camera = camera_mount(path, offset)
         processor.on_mount = remount
-    stop_ros = start_ros(lidar, lidar_topic, imu_topic, slam)
+    guide = ScanGuide() if slam is not None else None
+    stop_ros = start_ros(lidar, lidar_topic, imu_topic, slam, guide)
     glim = GlimProcess() if live_slam else None
     if glim and glim.reaped:
         print(f"Stopped GLIM left by an earlier console (PID {', '.join(map(str, glim.reaped))})",
               flush=True)
     server = ThreadingHTTPServer(("127.0.0.1", port),
-                                 make_handler(lidar, camera, recorder, slam, glim, processor))
+                                 make_handler(lidar, camera, recorder, slam, glim, processor,
+                                              guide))
     server.daemon_threads = True
     if camera.gopro and preview:
         try:

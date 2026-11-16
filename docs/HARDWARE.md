@@ -198,10 +198,16 @@ validation only, not yet by a cold start.
 
 ### Console details
 
-`splatrig live` serves a local page at http://127.0.0.1:8090/ (localhost only). It
-shows the last second of LiDAR points in the sensor frame, the MAX2 preview, rate
-and clock status, and a Record button that starts a `ros2 bag record` of the raw
-Livox topics plus a MAX2 recording into a new folder under `~/captures`. Run it
+`splatrig live` serves a local page at http://127.0.0.1:8090/ (localhost only),
+laid out like a phone scanning app.
+- **Full-screen view:** the SLAM map, or the last second of LiDAR points in the
+  sensor frame without SLAM.
+- **Top centre:** the timer and one guidance message.
+- **Right:** a tool rail.
+- **Bottom:** a heading-up mini-map and the round record button.
+
+The button starts a `ros2 bag record` of the raw Livox topics plus a MAX2 recording
+in a new folder under `~/captures`. Run it
 with the system Python after sourcing ROS 2 and the driver workspace, with ptp4l
 and the driver already running:
 
@@ -214,9 +220,53 @@ tools/splatrig-ros live            # --gopro none for LiDAR only
   approximate, not synchronized.
 - POST requests require an `X-SplatRig: 1` header. The server never binds to other
   interfaces; phone access needs a separate, deliberate setup.
-- The **Process a capture** panel runs `calibrate-gyro` (**Use as calibration**) or
-  `process-capture` (**Make 3DGS dataset**) on a selected capture. These are the
-  same functions as the commands.
+- **Guidance during a scan** (`scanguide.py`). The console replays the dataset's
+  photo rule on GLIM's odometry: a photo is due every 0.3 m or 20°, taken when
+  turning no faster than 30°/s. A photo due for more than 0.5 s counts as a
+  stretch too fast for photos.
+  - Coverage: at each photo, the newest scan marks 25 cm cells as seen from the
+    photo's horizontal direction (10° bins). A cell with views spanning 30° or more
+    is covered.
+    - The record button's ring shows the covered share: red below 30%, orange
+      below 60%, green from 60%.
+    - **Coverage** colours the cells the same way, in the map and the mini-map.
+  - Revisits: after 5 m of new ground and 40 s, the console asks for a return to a
+    scanned area so SLAM can correct drift. Coming within 0.8 m of route older than
+    20 s confirms it.
+  - One message is shown at a time, most important first:
+    1. LiDAR or SLAM failures
+    2. too fast for photos
+    3. no PTP
+    4. MAX2 problems
+    5. back in a scanned area
+    6. return prompt
+    7. nearly too fast
+    8. first-photo hint
+  - A blocking problem while recording draws a red frame around the screen.
+  - A motion meter appears above the button at 60% of the turn or speed limit.
+  - The guide's numbers predict the dataset; the dataset itself is decided offline.
+- **Tool rail:**
+  - Follow: behind the rig, heading up.
+  - Top view.
+  - Coverage.
+  - Ceiling: hide points more than 1 m above the rig.
+  - Live scan.
+  - Camera: MAX2 preview, picture in picture.
+  - Captures.
+
+  **Devices** (top left) lists LiDAR, IMU, clock, MAX2, SLAM and calibration, and
+  its dot shows the worst state.
+- **After Stop**, a review sheet shows:
+  - duration, distance, photos and coverage;
+  - notes on one-sided surfaces, stretches too fast for photos, long walks without
+    returning, and a missing MAX2 video;
+  - one primary action: **Make 3DGS dataset** when a calibration exists, otherwise
+    **Use as calibration**.
+
+  **Captures** opens the same sheet for an earlier recording.
+- The two buttons run `calibrate-gyro` (**Use as calibration**) and `process-capture`
+  (**Make 3DGS dataset**), the same functions as the commands. The sheet then shows
+  each step with a progress bar, and the result or the error.
   - Behavior:
     - One job runs at a time, in the background.
     - The panel shows the current step and then the result or the error.
@@ -260,8 +310,13 @@ tools/splatrig-ros live            # --gopro none for LiDAR only
   is a preview; datasets still come from the offline run of the recorded bag.
   Replaying the 27 s rotation bag in an isolated domain gave 10 Hz odometry and a
   17k-voxel map (23k before confirmation was required) with no dropped voxels.
-- In the Map view the pose is polled every 0.1 s and GLIM's newest scan ("Live
-  scan", cyan) every 0.2 s; the map and route refresh every second.
+- The pose is polled every 0.1 s and GLIM's newest scan ("Live scan", cyan) every
+  0.2 s. The map and route refresh every second, the coverage cells every 2 s.
+- Checked by replaying the 35 s capture of 2026-11-16 into a console in an isolated
+  ROS domain, driving Chrome with Playwright at 1280×800 and 390×844:
+  - record, coverage and top view, stop, review sheet, captures list;
+  - a real **Use as calibration** job: offset −7.3, 2.0, 7.4 cm;
+  - no console errors.
 - GLIM runs in its own session, so a console that dies without its cleanup leaves
   it running, and a second GLIM then writes another world frame into the same map
   (doubled, thick walls and a tangled route). The console stops GLIM on Ctrl+C,

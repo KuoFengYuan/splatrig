@@ -146,6 +146,12 @@ class SlamState:
                             for i in range(0, len(data), MAP_POINT.size * stride))
         return struct.pack("<I", len(data) // MAP_POINT.size) + data
 
+    def latest_points(self) -> list:
+        """The newest scan as (x, y, z, intensity) tuples, map frame."""
+        with self.lock:
+            data = self.latest
+        return list(MAP_POINT.iter_unpack(data))
+
     def scan_payload(self) -> bytes:
         with self.lock:
             data = self.latest
