@@ -20,7 +20,8 @@ import time
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 SETTINGS = "console.json"
 STAGES = {"calibrate": ["video", "fit"],
-          "dataset": ["lidar", "slam", "video", "frames", "assembly", "views", "export", "masks"]}
+          "dataset": ["lidar", "slam", "video", "frames", "assembly", "views", "masks", "colors",
+                      "export"]}
 MAX_OFFSET_M = 2.0
 
 
@@ -133,7 +134,8 @@ class Processor:
             try:
                 report = json.loads(path.read_text(encoding="utf-8"))
                 calibration.update(correlation=round(report["magnitude_correlation"], 4),
-                                   weak_axis=bool(report.get("weak_axis")))
+                                   weak_axis=bool(report.get("weak_axis")),
+                                   camera_offset_m=report.get("camera_offset_m"))
             except (OSError, ValueError, KeyError, TypeError):
                 pass
         return {"job": job, "calibration": calibration,
@@ -176,8 +178,12 @@ class Processor:
                           "correlation": round(report["magnitude_correlation"], 4),
                           "residual_ratio": round(report["residual_ratio"], 4),
                           "weak_axis": bool(report.get("weak_axis")),
-                          "offset_vs_command_ack_ms": round(report["offset_vs_command_ack_ms"], 1)}
+                          "offset_vs_command_ack_ms": round(report["offset_vs_command_ack_ms"], 1),
+                          "camera_offset_m": report.get("camera_offset_m"),
+                          "offset_note": (report.get("lever_arm") or {}).get("reason")}
                 self.settings["calibration"] = result["calibration"]
+                if result["camera_offset_m"]:  # the estimate replaces a hand-entered offset
+                    self.settings["camera_offset"] = list(camera_offset(result["camera_offset_m"]))
             else:
                 report = self.process(capture, output, calibration=self.calibration(),
                                       camera_offset=offset, gopro_host=self.gopro_host,

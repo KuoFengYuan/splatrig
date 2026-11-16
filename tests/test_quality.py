@@ -194,3 +194,85 @@ class LayoutAndExtractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LeverArmTests(unittest.TestCase):
+    def test_recovers_a_known_offset_between_two_accelerometers(self):
+        from splatrig.gyrocal import cross, solve_lever_arm
+        r = (-0.08, 0.02, 0.12)  # camera IMU from LiDAR IMU, LiDAR axes
+        rotation = ((0, -1, 0), (0, 0, -1), (1, 0, 0))  # camera stored axes -> LiDAR axes
+
+        def omega(t):
+            return (2.0 * math.sin(2.1 * t), 1.6 * math.sin(3.3 * t + 1), 1.8 * math.sin(2.7 * t + 2))
+
+        def alpha(t):
+            return (4.2 * math.cos(2.1 * t), 5.28 * math.cos(3.3 * t + 1), 4.86 * math.cos(2.7 * t + 2))
+        lidar_times, gyro, accel = [], [], []
+        for i in range(4000):  # 20 s at 200 Hz
+            t = i * 0.005
+            lidar_times.append(T0 + i * 5 * MS)
+            gyro.append(omega(t))
+            accel.append((0.3 * math.sin(t), 0.2, 9.81))
+        camera_times, camera_accel, offset = [], [], 1_000_000_000
+        for i in range(3900):  # 197 Hz on the camera clock
+            t_ns = round(i * 5.08 * MS)
+            t = (T0 + t_ns + offset - T0) / 1e9 - 1.0 + 1.0 - offset / 1e9
+            w, a = omega(t), alpha(t)
+            extra = [p + q for p, q in zip(cross(a, r), cross(w, cross(w, r)))]
+            f_lidar = (0.3 * math.sin(t) + extra[0], 0.2 + extra[1], 9.81 + extra[2])
+            f_lidar = (f_lidar[0] + 0.05, f_lidar[1] - 0.03, f_lidar[2])  # bias difference
+            camera_times.append(t_ns)
+            camera_accel.append(tuple(sum(rotation[k][i2] * f_lidar[k] for k in range(3))
+                                      for i2 in range(3)))
+        result = solve_lever_arm(camera_times, camera_accel, lidar_times, gyro, accel,
+                                 T0, rotation)
+        self.assertLess(math.dist(result["r_m"], r), 0.003, result)
+        self.assertLess(result["half_difference_m"], 0.003)
+        self.assertGreater(result["weakest_direction_ratio"], 0.3)
+        self.assertAlmostEqual(result["bias_m_s2"][0], 0.05, delta=0.01)
+
+
+@unittest.skipUnless(HAVE_FFMPEG, "ffmpeg and ffprobe are required")
+class ColorizeTests(unittest.TestCase):
+    def test_points_take_the_colour_they_project_to_and_avoid_the_mask(self):
+        from splatrig.colorize import colorize
+        from splatrig.selfmask import direction_bin
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            width, height = 64, 32
+            red_front = [bytes([200, 30, 30] if 16 <= u < 48 else [30, 30, 200])
+                         for u in range(width)]
+            rows = [b"".join(red_front)] * height
+            (base / "a.png").write_bytes(png_bytes(width, height, rows))
+            green = [bytes([30, 200, 30]) * width] * height
+            (base / "b.png").write_bytes(png_bytes(width, height, green))
+            identity = Pose((0, 0, 0), (1, 0, 0, 0))  # sphere = world, OpenCV axes
+            turned = Pose((0, 0, 0), (math.cos(math.pi / 4), 0, math.sin(math.pi / 4), 0))
+            shots = [(T0, identity, base / "a.png"), (T0 + 2 * 10**9, turned, base / "b.png")]
+            points = [(0, 0, 3, 0, 0, 0), (0, 0, -3, 0, 0, 0), (0, 0, 0.1, 0, 0, 0)]
+            times = [T0, T0, T0]
+            colored, report = colorize(points, times, shots, width=width)
+            self.assertEqual(colored[0][3:], (200, 30, 30))  # ahead: red half
+            self.assertEqual(colored[1][3:], (30, 30, 200))  # behind: blue half
+            self.assertEqual(colored[2][3:], (0, 0, 0))  # too close to colour
+            self.assertEqual((report["colored_points"], report["uncolored_points"]), (2, 1))
+            # Masking the forward direction sends that point to the other (turned) panorama.
+            masked = {direction_bin(0.0, 0.0)}
+            colored, report = colorize(points[:1], times[:1], shots, width=width, masked=masked)
+            self.assertEqual(colored[0][3:], (30, 200, 30))
+            self.assertEqual(report["mask_redirects"], 1)
+            # Nothing within max_gap_ns: the point keeps its colour.
+            colored, _ = colorize(points[:1], [T0 + 60 * 10**9], shots, width=width)
+            self.assertEqual(colored[0][3:], (0, 0, 0))
+
+
+class PointTimeTests(unittest.TestCase):
+    def test_each_map_point_keeps_its_closest_return_time(self):
+        from splatrig.demo import create_demo
+        from splatrig.session import prepare
+        with tempfile.TemporaryDirectory() as temporary:
+            create_demo(Path(temporary) / "demo")
+            data = prepare(Path(temporary) / "demo", allow_provisional=True)
+        self.assertEqual(len(data.point_times), len(data.points))
+        self.assertTrue(all(isinstance(t, int) for t in data.point_times))
+        self.assertGreater(len(set(data.point_times)), 1)

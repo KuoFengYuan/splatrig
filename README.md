@@ -78,8 +78,8 @@ After recording, use the page's **Process a capture** panel:
 
 1. Once per mount: record about 30 s turning the fixed rig about all three axes,
    select it and press **Use as calibration**.
-2. Select a scan, enter where the MAX2 lens sits relative to the LiDAR (meters)
-   and press **Make 3DGS dataset**.
+   This also measures where the MAX2 sits relative to the LiDAR.
+2. Select a scan and press **Make 3DGS dataset**.
 
 Results go to `~/splatrig-runs/`. The console remembers the calibration and offset.
 The same from a terminal:
@@ -89,11 +89,11 @@ The same from a terminal:
 tools/splatrig-ros calibrate-gyro ~/captures/<rotation capture> --output runs/calibration
 
 tools/splatrig-ros process-capture ~/captures/<capture> --output runs/<name> \
-  --calibration runs/calibration/calibration.json --camera-offset 0 0 0.083
+  --calibration runs/calibration/calibration.json
 ```
 
-The output folder is COLMAP layout (`images/`, `sparse/0/`, `points.ply`, and `masks/`
-when the operator could be estimated).
+The output folder is COLMAP layout (`images/`, `sparse/0/`, a coloured `points.ply`,
+and `masks/` when the operator could be estimated).
 
 ## Without hardware
 

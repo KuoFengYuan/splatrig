@@ -223,3 +223,83 @@ def calibrate(camera_times, camera_samples, lidar_times, lidar_samples, guess_ns
     report["R_lidar_sphere"] = [list(row) for row in matmul(rotation, GPMF_TO_SPHERE)]
     report["q_lidar_sphere_wxyz"] = list(quaternion(matmul(rotation, GPMF_TO_SPHERE)))
     return report
+
+
+def solve_linear(m, v):
+    """Solve m x = v for a small dense system (Gauss-Jordan, partial pivoting)."""
+    n = len(v)
+    a = [list(row) + [value] for row, value in zip(m, v)]
+    for column in range(n):
+        pivot = max(range(column, n), key=lambda r: abs(a[r][column]))
+        if abs(a[pivot][column]) < 1e-12:
+            raise ValueError("Lever-arm system is singular; rotate about all three axes")
+        a[column], a[pivot] = a[pivot], a[column]
+        for r in range(n):
+            if r != column:
+                factor = a[r][column] / a[column][column]
+                a[r] = [x - factor * y for x, y in zip(a[r], a[column])]
+    return [a[i][n] / a[i][i] for i in range(n)]
+
+
+def cross(a, b):
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def solve_lever_arm(camera_times, camera_accel, lidar_times, lidar_gyro, lidar_accel,
+                    offset_ns, rotation, *, step_ns=5_000_000, half_window_ns=15_000_000,
+                    min_rate=0.3) -> dict:
+    """Camera IMU position relative to the LiDAR IMU (meters, LiDAR IMU axes).
+
+    On a rigid body the specific force at a point r away differs by
+    alpha x r + w x (w x r); gravity and linear acceleration cancel. Both
+    accelerometers (m/s^2) are box-averaged over the same window, the camera's is
+    rotated into LiDAR axes and shifted by the clock offset, alpha comes from
+    central differences of the LiDAR gyro, and r is solved by least squares with a
+    constant bias difference. Each half of the capture is also solved alone.
+    """
+    camera = Signal([t + offset_ns for t in camera_times],
+                    [tuple(sum(rotation[i][k] * s[k] for k in range(3)) for i in range(3))
+                     for s in camera_accel], half_window_ns)
+    gyro = Signal(lidar_times, lidar_gyro, half_window_ns)
+    accel = Signal(lidar_times, lidar_accel, half_window_ns)
+    start = max(camera.start, gyro.start) + step_ns
+    end = min(camera.end, gyro.end) - step_ns
+    rows = []
+    t = start
+    while t <= end:
+        w, before, after = gyro.at(t), gyro.at(t - step_ns), gyro.at(t + step_ns)
+        fc, fl = camera.at(t), accel.at(t)
+        t += step_ns
+        if None in (w, before, after, fc, fl) or math.dist(w, (0, 0, 0)) < min_rate:
+            continue
+        alpha = tuple((b - a) / (2 * step_ns * 1e-9) for a, b in zip(before, after))
+        # Columns of [alpha]x + [w]x[w]x: the response to a unit r along each axis.
+        columns = [tuple(p + q for p, q in zip(cross(alpha, e), cross(w, cross(w, e))))
+                   for e in ((1, 0, 0), (0, 1, 0), (0, 0, 1))]
+        for axis in range(3):
+            bias = [0.0, 0.0, 0.0]
+            bias[axis] = 1.0
+            rows.append(([columns[0][axis], columns[1][axis], columns[2][axis], *bias],
+                         fc[axis] - fl[axis]))
+    if len(rows) < 300:
+        raise ValueError("Too little rotation for the lever arm; rotate the rig for longer")
+
+    def fit(selected):
+        normal = [[sum(r[0][i] * r[0][j] for r in selected) for j in range(6)] for i in range(6)]
+        rhs = [sum(r[0][i] * r[1] for r in selected) for i in range(6)]
+        x = solve_linear(normal, rhs)
+        residual = math.sqrt(sum((y - sum(a * b for a, b in zip(row, x))) ** 2
+                                 for row, y in selected) / len(selected))
+        return x, residual, normal
+
+    x, residual, normal = fit(rows)
+    half = len(rows) // 2 - (len(rows) // 2) % 3
+    first, _, _ = fit(rows[:half])
+    second, _, _ = fit(rows[half:])
+    strength = singular_values([row[:3] for row in normal[:3]])
+    return {"r_m": [round(v, 5) for v in x[:3]], "bias_m_s2": [round(v, 4) for v in x[3:]],
+            "residual_rms_m_s2": round(residual, 4),
+            "signal_rms_m_s2": round(math.sqrt(sum(y * y for _, y in rows) / len(rows)), 4),
+            "half_difference_m": round(math.dist(first[:3], second[:3]), 4),
+            "weakest_direction_ratio": round(math.sqrt(strength[2] / strength[0]), 4),
+            "samples": len(rows) // 3}
