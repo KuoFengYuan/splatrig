@@ -23,6 +23,7 @@ import time
 from .gopro import GoPro, PreviewDecoder
 from .livox import assess_clock
 from .liveslam import GLIM_POINTS_TOPIC, GlimProcess, SlamState, cloud_points
+from .library import Library
 from .processing import Processor
 from .scanguide import ScanGuide
 from .rosview import POINT, pack_points, ros_import_error, use_dds_profile
@@ -270,8 +271,28 @@ class Recorder:
 
 def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
                  slam: SlamState | None = None, glim: GlimProcess | None = None,
-                 processor: Processor | None = None, guide: ScanGuide | None = None):
+                 processor: Processor | None = None, guide: ScanGuide | None = None,
+                 library: Library | None = None):
     page = ASSET.read_bytes()
+
+    def context() -> dict:
+        """What the library needs to tell each scan's state."""
+        state = processor.status() if processor else {"job": None, "queue": []}
+        return {"job": state["job"], "queued": {q["capture"] for q in state["queue"]},
+                "recording": recorder.folder.name if recorder.process and recorder.folder
+                else None, "calibration": processor.calibration() if processor else None}
+
+    def protected() -> set:
+        names = set(context()["queued"])
+        state = context()
+        if state["recording"]:
+            names.add(state["recording"])
+        if state["job"] and not state["job"].get("finished_ns"):
+            names.add(state["job"]["capture"])
+        for entry in library.list()["scans"] if library else []:
+            if entry["current_calibration"]:
+                names.add(entry["id"])
+        return names
 
     def new_scan():
         """Each scan starts a fresh SLAM session and an empty live map.
@@ -342,6 +363,8 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
                 self.send(200, guide.cells_payload(), "application/octet-stream")
             elif path == "/api/captures" and processor is not None:
                 self.send_json(200, processor.list_captures())
+            elif path.startswith("/api/scans") and library is not None:
+                self.scans_get(path)
             elif path == "/api/map" and slam is not None:
                 self.send(200, slam.map_payload(), "application/octet-stream")
             elif path == "/api/route" and slam is not None:
@@ -357,9 +380,84 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
             else:
                 self.send_json(404, {"error": "not found"})
 
-        def body(self) -> dict:
+        def scans_get(self, path):
+            query = dict(part.split("=", 1) for part in self.path.partition("?")[2].split("&")
+                         if "=" in part)
+            from urllib.parse import unquote_plus
+            query = {k: unquote_plus(v) for k, v in query.items()}
+            parts = path.split("/")[3:]  # after /api/scans
+            try:
+                if not parts:
+                    self.send_json(200, library.list(query.get("sort", "newest"),
+                                                     query.get("filter", "all"),
+                                                     query.get("q", ""), **context()))
+                elif parts == ["deleted"]:
+                    self.send_json(200, library.deleted())
+                elif len(parts) == 2 and parts[1] == "cover.jpg":
+                    library.capture(parts[0])
+                    cover = library.cover_path(parts[0])
+                    if cover.is_file():
+                        self.send(200, cover.read_bytes(), "image/jpeg")
+                        return
+                    # No map snapshot (older scans): the dataset's first photo.
+                    from . import preview
+                    entry = library.entry(parts[0])
+                    if not entry["dataset"]:
+                        raise ValueError("No cover")
+                    dataset = Path(entry["dataset"])
+                    first = preview.cameras(dataset)[0]["image"]
+                    cache = library.meta_dir / "thumbs" / dataset.parent.name
+                    self.send(200, preview.thumbnail(dataset, first, cache, width=480,
+                                                     masked=False), "image/jpeg")
+                elif len(parts) >= 2 and parts[1] in ("points", "cameras", "thumb"):
+                    from . import preview
+                    entry = library.entry(parts[0], **context())
+                    if not entry["dataset"]:
+                        raise ValueError("This scan has no dataset yet")
+                    dataset = Path(entry["dataset"])
+                    if parts[1] == "points":
+                        self.send(200, preview.points_payload(dataset), "application/octet-stream")
+                    elif parts[1] == "cameras":
+                        self.send_json(200, preview.cameras(dataset))
+                    elif len(parts) == 3:
+                        cache = library.meta_dir / "thumbs" / dataset.parent.name
+                        width = min(1600, max(64, int(query.get("w", "192"))))
+                        self.send(200, preview.thumbnail(dataset, parts[2], cache, width=width,
+                                                         masked=query.get("masked") != "0"),
+                                  "image/jpeg")
+                    else:
+                        raise ValueError("Unknown image")
+                else:
+                    self.send_json(404, {"error": "not found"})
+            except (ValueError, OSError) as error:
+                self.send_json(404, {"error": str(error)})
+
+        def scans_post(self, path, data):
+            ids = data.get("ids")
+            if path == "/api/scans/rename":
+                return {"name": library.rename(data.get("id"), data.get("name", ""))}
+            if path == "/api/scans/cover":
+                import base64
+                library.set_cover(data.get("id"), base64.b64decode(data.get("jpeg", ""),
+                                                                    validate=True))
+                return {"ok": True}
+            if path == "/api/scans/delete-dataset":
+                if data.get("id") in protected():
+                    raise ValueError("This scan is in use and its dataset cannot be deleted now")
+                return {"removed": library.delete_dataset(data.get("id"))}
+            if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+                raise ValueError("Expected a list of scan ids")
+            if path == "/api/scans/delete":
+                return {"deleted": library.delete(ids, protected())}
+            if path == "/api/scans/restore":
+                return {"restored": library.restore(ids)}
+            if path == "/api/scans/purge":
+                return {"purged": library.purge(ids or None)}
+            raise ValueError("not found")
+
+        def body(self, limit=4096) -> dict:
             length = int(self.headers.get("Content-Length") or 0)
-            if length > 4096:
+            if length > limit:
                 raise ValueError("Request body too large")
             value = json.loads(self.rfile.read(length)) if length else {}
             if not isinstance(value, dict):
@@ -370,6 +468,19 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
             # Cross-site forms cannot set custom headers without a CORS preflight.
             if self.headers.get("X-SplatRig") != "1":
                 self.send_json(403, {"error": "missing X-SplatRig header"})
+                return
+            if self.route().startswith("/api/scans/") and library is not None:
+                try:
+                    limit = 1_200_000 if self.route() == "/api/scans/cover" else 4096
+                    self.send_json(200, self.scans_post(self.route(), self.body(limit)))
+                except (ValueError, OSError) as error:
+                    self.send_json(409, {"error": str(error)})
+                return
+            if self.route() == "/api/process/unqueue" and processor is not None:
+                try:
+                    self.send_json(200, processor.unqueue(self.body().get("capture")))
+                except ValueError as error:
+                    self.send_json(409, {"error": str(error)})
                 return
             jobs = {"/api/process/calibrate": "calibrate", "/api/process/dataset": "dataset"}
             if self.route() in jobs and processor is not None:
@@ -403,8 +514,12 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
                     new_scan()
                 if guide is not None and path == "/api/record/start":
                     guide.start()
-                elif guide is not None and path == "/api/record/stop":
-                    guide.stop()
+                elif path == "/api/record/stop":
+                    if guide is not None:
+                        guide.stop()
+                    if library is not None and recorder.folder is not None:
+                        summary = guide.status() if guide is not None else None
+                        library.save_meta(recorder.folder.name, guide=summary)
                 self.send_json(200, result if isinstance(result, dict) else {"ok": True})
             except (ValueError, OSError) as error:
                 self.send_json(409, {"error": str(error)})
@@ -522,7 +637,15 @@ def serve(port: int, captures: Path, gopro_host: str | None, lidar_topic: str,
     recorder = Recorder(captures, camera, (lidar_topic, imu_topic))
     # A calibration or offset given on the command line becomes the console's current
     # one; otherwise the one remembered from the last calibration or dataset is used.
-    processor = Processor(captures, output_root or Path.home() / "splatrig-runs", gopro_host)
+    root = output_root or Path.home() / "splatrig-runs"
+    library = Library(captures, root)
+    library.purge(expired_only=True)
+
+    def finished(job):
+        library.save_meta(job["capture"], last_error=job["error"],
+                          last_job={"kind": job["kind"], "finished_ns": job["finished_ns"],
+                                    "error": job["error"]})
+    processor = Processor(captures, root, gopro_host, on_finish=finished)
     if calibration is not None:
         processor.settings["calibration"] = str(calibration.resolve())
     if camera_offset is not None:
@@ -544,7 +667,7 @@ def serve(port: int, captures: Path, gopro_host: str | None, lidar_topic: str,
               flush=True)
     server = ThreadingHTTPServer(("127.0.0.1", port),
                                  make_handler(lidar, camera, recorder, slam, glim, processor,
-                                              guide))
+                                              guide, library))
     server.daemon_threads = True
     if camera.gopro and preview:
         try:

@@ -55,11 +55,14 @@ def default_process(capture, output, *, calibration, camera_offset, gopro_host=N
 
 class Processor:
     def __init__(self, captures: Path, root: Path, gopro_host: str | None = None,
-                 calibrate=default_calibrate, process=default_process, on_mount=None):
+                 calibrate=default_calibrate, process=default_process, on_mount=None,
+                 on_finish=None):
         self.captures, self.root = captures, root
         self.gopro_host = gopro_host
         self.calibrate, self.process = calibrate, process
         self.on_mount = on_mount  # called with (calibration path, offset) after a change
+        self.on_finish = on_finish  # called with each finished job
+        self.queue = []  # waiting jobs: {"kind", "capture", "offset"}
         self.lock = threading.Lock()
         self.job = None
         self.thread = None
@@ -136,7 +139,12 @@ class Processor:
 
     def status(self) -> dict:
         with self.lock:
-            job = json.loads(json.dumps(self.job)) if self.job else None
+            return self._status()
+
+    def _status(self) -> dict:
+        """Status with the lock held."""
+        job = json.loads(json.dumps(self.job)) if self.job else None
+        queue = [{"kind": q["kind"], "capture": q["capture"]} for q in self.queue]
         calibration = None
         path = self.calibration()
         if path:
@@ -148,7 +156,7 @@ class Processor:
                                    camera_offset_m=report.get("camera_offset_m"))
             except (OSError, ValueError, KeyError, TypeError):
                 pass
-        return {"job": job, "calibration": calibration,
+        return {"job": job, "queue": queue, "calibration": calibration,
                 "camera_offset": self.settings["camera_offset"], "output_root": str(self.root)}
 
     def start(self, kind: str, name, offset=None) -> dict:
@@ -161,18 +169,31 @@ class Processor:
                              "then press Use as calibration")
         with self.lock:
             if self.job is not None and self.job["finished_ns"] is None:
-                raise ValueError("A job is already running")
-            output = unique_folder(self.root, f"calibration-{name}" if kind == "calibrate"
-                                   else name)
-            self.job = {"kind": kind, "capture": name, "output": str(output),
-                        "stages": STAGES[kind], "stage": None,
-                        "started_ns": time.time_ns(), "finished_ns": None,
-                        "error": None, "result": None}
-            job = self.job
+                if any(q["capture"] == name and q["kind"] == kind for q in self.queue) or \
+                        (self.job["capture"] == name and self.job["kind"] == kind):
+                    raise ValueError(f"{name} is already waiting for this job")
+                self.queue.append({"kind": kind, "capture": name, "offset": offset})
+                return self._status()
+            self._begin(kind, capture, name, offset)
+        return self.status()
+
+    def _begin(self, kind, capture: Path, name: str, offset):
+        """Start a job now (lock held)."""
+        output = unique_folder(self.root, f"calibration-{name}" if kind == "calibrate"
+                               else name)
+        self.job = {"kind": kind, "capture": name, "output": str(output),
+                    "stages": STAGES[kind], "stage": None,
+                    "started_ns": time.time_ns(), "finished_ns": None,
+                    "error": None, "result": None}
+        job = self.job
         self.root.mkdir(parents=True, exist_ok=True)
         self.thread = threading.Thread(target=self._run, args=(job, capture, output, offset),
                                        daemon=True)
         self.thread.start()
+
+    def unqueue(self, name) -> dict:
+        with self.lock:
+            self.queue = [q for q in self.queue if q["capture"] != name]
         return self.status()
 
     def _run(self, job, capture: Path, output: Path, offset):
@@ -225,6 +246,20 @@ class Processor:
                 f"{type(failure).__name__}: {failure}"
         with self.lock:
             job.update(result=result, error=error, finished_ns=time.time_ns())
+        if self.on_finish:
+            try:
+                self.on_finish(job)
+            except Exception:  # bookkeeping must not stop the queue
+                pass
+        with self.lock:
+            while self.queue:
+                item = self.queue.pop(0)
+                try:
+                    capture = self.capture(item["capture"])
+                except ValueError:  # deleted while waiting
+                    continue
+                self._begin(item["kind"], capture, item["capture"], item["offset"])
+                break
 
     def interrupted(self) -> str | None:
         """Message for a job cut off by the console stopping, if one is running."""
