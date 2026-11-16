@@ -72,7 +72,13 @@ tools/splatrig-ros start    # 啟動 driver、介面與 GLIM，開啟瀏覽器
 
 也可以從應用程式選單點「SplatRig」。在網頁上按 Record 開始錄製，Ctrl+C 結束。
 
-錄完後處理：
+錄完後，在網頁的 **Process a capture** 面板處理：
+
+1. 每次固定方式改變後做一次：錄一段約 30 秒、拿著固定好的設備繞三個軸轉動的影片，
+   選取它並按 **Use as calibration**。
+2. 選取掃描錄影，輸入 MAX2 鏡頭相對 LiDAR 的位置（公尺），按 **Make 3DGS dataset**。
+
+結果放在 `~/splatrig-runs/`，介面會記住校正檔與位移。也可以在終端機執行：
 
 ```sh
 # 裝好設備後先做一次：拿著設備繞三個軸轉動約 30 秒並錄下來

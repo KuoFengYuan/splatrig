@@ -23,6 +23,7 @@ import time
 from .gopro import GoPro, PreviewDecoder
 from .livox import assess_clock
 from .liveslam import GLIM_POINTS_TOPIC, GlimProcess, SlamState, cloud_points
+from .processing import Processor
 from .rosview import POINT, pack_points, ros_import_error, use_dds_profile
 
 WINDOW_FRAMES = 10
@@ -267,7 +268,8 @@ class Recorder:
 
 
 def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
-                 slam: SlamState | None = None, glim: GlimProcess | None = None):
+                 slam: SlamState | None = None, glim: GlimProcess | None = None,
+                 processor: Processor | None = None):
     page = ASSET.read_bytes()
 
     class Handler(BaseHTTPRequestHandler):
@@ -310,7 +312,10 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
                                    **slam.status()}
                 self.send_json(200, {"time_ns": time.time_ns(), "lidar": lidar.status(),
                                      "camera": camera.status(), "record": recorder.status(),
-                                     "slam": slam_status})
+                                     "slam": slam_status,
+                                     "process": processor.status() if processor else None})
+            elif path == "/api/captures" and processor is not None:
+                self.send_json(200, processor.list_captures())
             elif path == "/api/map" and slam is not None:
                 self.send(200, slam.map_payload(), "application/octet-stream")
             elif path == "/api/route" and slam is not None:
@@ -326,10 +331,33 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
             else:
                 self.send_json(404, {"error": "not found"})
 
+        def body(self) -> dict:
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > 4096:
+                raise ValueError("Request body too large")
+            value = json.loads(self.rfile.read(length)) if length else {}
+            if not isinstance(value, dict):
+                raise ValueError("Expected a JSON object")
+            return value
+
         def do_POST(self):
             # Cross-site forms cannot set custom headers without a CORS preflight.
             if self.headers.get("X-SplatRig") != "1":
                 self.send_json(403, {"error": "missing X-SplatRig header"})
+                return
+            jobs = {"/api/process/calibrate": "calibrate", "/api/process/dataset": "dataset"}
+            if self.route() in jobs and processor is not None:
+                try:
+                    data = self.body()
+                    if recorder.process:
+                        raise ValueError("Stop recording before processing")
+                    self.send_json(200, processor.start(jobs[self.route()], data.get("capture"),
+                                                        data.get("camera_offset")))
+                except (ValueError, OSError) as error:
+                    self.send_json(409, {"error": str(error)})
+                return
+            if self.route() == "/api/record/start" and processor is not None and processor.busy():
+                self.send_json(409, {"error": "Processing is running; record after it finishes"})
                 return
             actions = {"/api/preview/start": camera.start_preview,
                        "/api/preview/stop": camera.stop_preview,
@@ -453,18 +481,34 @@ def camera_mount(calibration: Path | None, offset=(0.0, 0.0, 0.0)):
 
 def serve(port: int, captures: Path, gopro_host: str | None, lidar_topic: str,
           imu_topic: str, preview: bool = True, live_slam: bool = False,
-          calibration: Path | None = None, camera_offset=(0.0, 0.0, 0.0), ready=None):
+          calibration: Path | None = None, camera_offset=None, ready=None,
+          output_root: Path | None = None):
     lidar = LidarState()
     camera = Camera(GoPro(gopro_host) if gopro_host else None)
     recorder = Recorder(captures, camera, (lidar_topic, imu_topic))
+    # A calibration or offset given on the command line becomes the console's current
+    # one; otherwise the one remembered from the last calibration or dataset is used.
+    processor = Processor(captures, output_root or Path.home() / "splatrig-runs", gopro_host)
+    if calibration is not None:
+        processor.settings["calibration"] = str(calibration.resolve())
+    if camera_offset is not None:
+        processor.settings["camera_offset"] = [float(v) for v in camera_offset]
+    if calibration is not None or camera_offset is not None:
+        processor.save_settings()
+    calibration = processor.calibration()
+    camera_offset = tuple(processor.settings["camera_offset"])
     slam = SlamState(camera=camera_mount(calibration, camera_offset)) if live_slam else None
+    if slam is not None:
+        def remount(path, offset):
+            slam.camera = camera_mount(path, offset)
+        processor.on_mount = remount
     stop_ros = start_ros(lidar, lidar_topic, imu_topic, slam)
     glim = GlimProcess() if live_slam else None
     if glim and glim.reaped:
         print(f"Stopped GLIM left by an earlier console (PID {', '.join(map(str, glim.reaped))})",
               flush=True)
     server = ThreadingHTTPServer(("127.0.0.1", port),
-                                 make_handler(lidar, camera, recorder, slam, glim))
+                                 make_handler(lidar, camera, recorder, slam, glim, processor))
     server.daemon_threads = True
     if camera.gopro and preview:
         try:
@@ -473,6 +517,9 @@ def serve(port: int, captures: Path, gopro_host: str | None, lidar_topic: str,
             camera.error = str(error)
     print(f"SplatRig live console: http://127.0.0.1:{port}/  (GoPro: {gopro_host or 'none'})",
           flush=True)
+    if calibration:
+        print(f"Calibration: {calibration} (camera offset {camera_offset} m)", flush=True)
+    print(f"Datasets and calibrations go to {processor.root}", flush=True)
     print("Press Ctrl+C here to stop.", flush=True)
     if ready:
         ready()
@@ -495,6 +542,9 @@ def serve(port: int, captures: Path, gopro_host: str | None, lidar_topic: str,
         for number in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             signal.signal(number, patience)
         print("Stopping the console", flush=True)
+        note = processor.interrupted()
+        if note:
+            print(note, file=sys.stderr, flush=True)
         # Each step runs even if an earlier one fails, so GLIM is never left behind.
         steps = [("web server", server.server_close),
                  ("recording", recorder.stop if recorder.process else None),

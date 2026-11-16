@@ -303,7 +303,7 @@ def process_capture(capture: Path, output: Path, *, camera_offset=(0.0, 0.0, 0.0
 
 def calibrate_capture(capture: Path, output: Path, *, video: Path | None = None,
                       gopro_host: str | None = None, min_correlation=0.95,
-                      max_residual_ratio=0.1) -> dict:
+                      max_residual_ratio=0.1, progress=None) -> dict:
     """Write calibration.json (rotation, this capture's clock offset, diagnostics)."""
     from .export import new_output
     from .gopro import GoPro
@@ -313,12 +313,16 @@ def calibrate_capture(capture: Path, output: Path, *, video: Path | None = None,
     if "start_ack_ns" not in gopro:
         raise ValueError("capture-log.json has no MAX2 recording")
     with new_output(output, capture) as root:
+        if progress:
+            progress("video")
         if video is None:
             media = [name for name in gopro.get("new_media", []) if name.endswith(".360")]
             if len(media) != 1 or not gopro_host:
                 raise ValueError("Pass --video, or connect the MAX2 with exactly one new .360 file")
             video = root / Path(media[0]).name
             GoPro(gopro_host, timeout=60).download(media[0], video)
+        if progress:
+            progress("fit")
         result = gyro_clock(capture, video, gopro["start_ack_ns"])
         fit = result["fit"]
         ratio = fit["residual_rms_rad_s"] / fit["signal_rms_rad_s"]

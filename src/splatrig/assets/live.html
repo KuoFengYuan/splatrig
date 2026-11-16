@@ -52,6 +52,23 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
 .info dt { color: var(--muted); } .info dd { margin: 0; color: var(--text); }
 .error { color: var(--bad); font-size: 12px; padding: 0 10px 8px; min-height: 1em; }
 .side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.proc { display: flex; flex-direction: column; gap: 10px; padding: 10px; font-size: 13px; }
+.proc label { display: flex; align-items: center; gap: 8px; }
+.proc select { flex: 1; min-width: 0; }
+.proc fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.proc legend { padding: 0; margin-bottom: 4px; color: var(--muted); font-size: 12px; }
+.proc input[type=number] { width: 84px; font: inherit; font-size: 13px; color: var(--text); background: #0d1117;
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px; min-height: 32px; }
+.proc input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+button.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; font-weight: 600; }
+.calib { color: var(--muted); overflow-wrap: anywhere; } .calib.ok { color: var(--text); } .calib.warn { color: var(--warn); }
+.stages { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 6px; font-size: 12px; }
+.stages li { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.stages li.done { color: var(--ok); border-color: rgba(63, 185, 80, .4); }
+.stages li.now { color: var(--text); border-color: var(--accent); }
+.stages li.failed { color: var(--bad); border-color: var(--bad); }
+.result { font-size: 12px; overflow-wrap: anywhere; } .result.bad { color: var(--bad); }
 @media (max-width: 900px) {
   main { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
   .view { min-height: 58vh; }
@@ -115,12 +132,33 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
       <div class="info">LiDAR bag and MAX2 recording start together from host commands;
         their start times are approximate, not synchronized.</div>
     </section>
+    <section id="proc-panel" hidden>
+      <div class="bar"><h2>Process a capture</h2></div>
+      <div class="proc">
+        <label>Capture <select id="cap" aria-label="Capture to process"></select></label>
+        <div class="calib" id="calib">No calibration yet</div>
+        <fieldset>
+          <legend>MAX2 lens center from the LiDAR center (m, LiDAR axes, +Z up)</legend>
+          <label>X <input id="ox" type="number" step="0.001" inputmode="decimal" aria-label="Offset X in meters"></label>
+          <label>Y <input id="oy" type="number" step="0.001" inputmode="decimal" aria-label="Offset Y in meters"></label>
+          <label>Z <input id="oz" type="number" step="0.001" inputmode="decimal" aria-label="Offset Z in meters"></label>
+        </fieldset>
+        <div class="buttons">
+          <button id="do-cal" type="button" title="The selected capture must turn the fixed rig about all three axes">Use as calibration</button>
+          <button id="do-set" type="button" class="primary">Make 3DGS dataset</button>
+        </div>
+        <ol class="stages" id="stages" aria-label="Processing steps"></ol>
+        <div class="result" id="result" role="status"></div>
+      </div>
+    </section>
   </div>
 </main>
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-const post = (path) => fetch(path, {method: "POST", headers: {"X-SplatRig": "1"}})
+const post = (path, data) => fetch(path, {method: "POST",
+    headers: data ? {"X-SplatRig": "1", "Content-Type": "application/json"} : {"X-SplatRig": "1"},
+    body: data ? JSON.stringify(data) : undefined})
   .then(async (r) => { const body = await r.json(); if (!r.ok) throw new Error(body.error || r.status); return body; });
 const showError = (e) => { $("err").textContent = e ? String(e.message || e) : ""; };
 
@@ -336,6 +374,9 @@ async function status() {
   if (S.enabled && wantMap) { wantMap = false; $("mode").value = "map"; $("mode").dispatchEvent(new Event("change")); }
   $("pv").disabled = !C.configured;
   setPreview(!!C.previewing);
+  renderProcess(s.process, R.recording);
+  if (wasRecording && !R.recording) loadCaptures(true);
+  wasRecording = R.recording;
   $("rec").classList.toggle("active", R.recording);
   $("rec").textContent = R.recording ? "■ Stop" : "● Record";
   $("rec-state").textContent = R.recording ? `Recording ${R.elapsed_s?.toFixed(0) ?? 0} s` : "Idle";
@@ -351,6 +392,66 @@ async function status() {
   $("rec-info").replaceChildren(...rows.flatMap(([k, v]) => { const dt = document.createElement("dt"), dd = document.createElement("dd");
     dt.textContent = k; dd.textContent = v; return [dt, dd]; }));
 }
+// ---------- processing ----------
+const STAGE = {lidar: "Read LiDAR", slam: "SLAM (GLIM)", video: "MAX2 video", frames: "Choose frames",
+  assembly: "Assemble", views: "Cut views", export: "Export COLMAP", masks: "Operator masks", fit: "Fit gyroscopes"};
+let wasRecording = false, offsetEdited = false;
+async function loadCaptures(newest) {
+  try {
+    const list = await (await fetch("/api/captures", {cache: "no-store"})).json();
+    const sel = $("cap"), keep = sel.value;
+    sel.replaceChildren(...list.map((c) => { const o = document.createElement("option"); o.value = c.name;
+      o.textContent = `${c.name}${c.duration_s != null ? ` · ${Math.round(c.duration_s)} s` : ""}${c.video.length ? "" : " · no MAX2 video"}`;
+      return o; }));
+    if (!newest && list.some((c) => c.name === keep)) sel.value = keep;
+  } catch (e) { /* server restarting */ }
+}
+["ox", "oy", "oz"].forEach((id) => $(id).addEventListener("input", () => { offsetEdited = true; }));
+function renderProcess(P, recording) {
+  $("proc-panel").hidden = !P;
+  if (!P) return;
+  const c = P.calibration, line = $("calib");
+  if (c) { line.className = "calib " + (c.weak_axis ? "warn" : "ok");
+    line.textContent = `Calibration: ${c.name}` + (c.correlation != null ? ` · gyro correlation ${c.correlation}` : "") +
+      (c.weak_axis ? " · one axis barely turned: record again turning about all three" : ""); }
+  else { line.className = "calib"; line.textContent = "No calibration yet: record about 30 s turning the fixed rig about all three axes, then press Use as calibration."; }
+  if (!offsetEdited) ["ox", "oy", "oz"].forEach((id, i) => { if (document.activeElement !== $(id)) $(id).value = P.camera_offset[i]; });
+  const job = P.job, running = !!job && !job.finished_ns;
+  $("do-cal").disabled = running || recording || !$("cap").value;
+  $("do-set").disabled = running || recording || !$("cap").value || !c;
+  $("do-set").title = c ? "" : "Calibrate first";
+  const steps = $("stages"), result = $("result");
+  if (!job) { steps.replaceChildren(); result.textContent = recording ? "Stop recording to process." : ""; return; }
+  const at = job.stages.indexOf(job.stage);
+  steps.replaceChildren(...job.stages.map((name, i) => { const li = document.createElement("li");
+    li.textContent = STAGE[name] || name;
+    li.className = !job.finished_ns ? (i < at ? "done" : i === at ? "now" : "") : job.error ? (i < at ? "done" : i === at ? "failed" : "") : "done";
+    if (i === at && !job.finished_ns) li.setAttribute("aria-current", "step");
+    return li; }));
+  const secs = Math.round(((job.finished_ns || Date.now() * 1e6) - job.started_ns) / 1e9);
+  const what = job.kind === "calibrate" ? "Calibrating" : "Making dataset from";
+  result.className = "result" + (job.error ? " bad" : "");
+  if (running) result.textContent = `${what} ${job.capture} · ${secs} s`;
+  else if (job.error) result.textContent = `Failed after ${secs} s: ${job.error}`;
+  else if (job.kind === "calibrate") { const r = job.result;
+    result.textContent = `Calibration saved (${secs} s): gyro correlation ${r.correlation}, residual ${(r.residual_ratio * 100).toFixed(1)}%` +
+      (r.weak_axis ? ", one axis barely turned" : "") + `. ${r.calibration}`; }
+  else { const r = job.result;
+    result.textContent = `Dataset ready (${secs} s): ${r.images} images from ${r.keyframes ?? "?"} frames` +
+      (r.too_fast ? ` (${r.too_fast} frames skipped as too fast)` : "") + `, ${r.points?.toLocaleString() ?? "?"} points, ` +
+      (r.masks ? `${r.masks} masks` : `no masks: ${r.mask_note || "off"}`) +
+      `. Provisional: the camera offset is hand-measured. ${r.dataset}`; }
+}
+function offset() { return ["ox", "oy", "oz"].map((id) => Number($(id).value)); }
+$("do-cal").addEventListener("click", () => post("/api/process/calibrate", {capture: $("cap").value})
+  .then(() => { showError(); status(); }, showError));
+$("do-set").addEventListener("click", () => {
+  const o = offset();
+  if (o.some((v) => !Number.isFinite(v))) { showError("Enter the camera offset in meters"); return; }
+  post("/api/process/dataset", {capture: $("cap").value, camera_offset: o})
+    .then(() => { offsetEdited = false; showError(); status(); }, showError);
+});
+loadCaptures(true);
 setInterval(status, 1000); status();
 $("pv").addEventListener("click", () => post(previewing ? "/api/preview/stop" : "/api/preview/start").then(() => { showError(); status(); }, showError));
 $("rec").addEventListener("click", () => {

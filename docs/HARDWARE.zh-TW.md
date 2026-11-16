@@ -183,6 +183,26 @@ tools/splatrig-ros live            # 只用 LiDAR 時加 --gopro none
   LiDAR 與相機的開始時間是近似值，並未同步。
 - POST 請求需帶 `X-SplatRig: 1` 標頭。伺服器不綁定其他網路介面；手機存取需另行
   審慎設定。
+- **Process a capture** 面板對選取的錄影執行 `calibrate-gyro`（**Use as calibration**）
+  或 `process-capture`（**Make 3DGS dataset**），使用與指令相同的函式。
+  - 運作方式：
+    - 一次只執行一個工作，在背景進行。
+    - 面板顯示目前步驟，完成後顯示結果或錯誤。
+    - 錄製中不能開始處理，處理中也不能開始錄製。
+  - 輸出位置：
+    - 結果放在 `--output-root`（預設 `~/splatrig-runs`）。
+    - 校正檔放在 `calibration-<錄影>`，資料集放在 `<錄影>`。
+    - 重複處理會加上 `-2`、`-3`，不會覆蓋舊的。
+  - 記住的設定：
+    - 最新的校正檔與相機位移存在 `<output-root>/console.json`。
+    - 存好後，Map 視角會立即畫出相機位姿。
+    - 重新啟動介面時會沿用這些設定，除非指定了 `--calibration` 或 `--camera-offset`；
+      用這兩個參數指定的值會成為新的設定。
+  - 處理途中關閉介面不會發布任何結果，並會指出殘留的 `.<名稱>-work` 資料夾。
+  - 已用 2026-11-16 的 35 秒旋轉錄影，透過 API 與頁面驗證：
+    - 校正 13 秒，陀螺儀相關係數 0.998。
+    - 資料集 77 秒：14 幀、70 張影像，270 幀因轉太快略過。
+    - 設備只移動 0.82 m，所以沒有遮罩。
 - MAX2 預覽執行時，約 380 KB 的 Livox 幀超過 208 KiB 的預設 UDP 接收緩衝區，
   best-effort DDS 會整幀丟棄（降到 1–3 Hz）。`live`、`ros-pointcloud` 及其啟動的
   bag 錄製會使用套件內的 Fast DDS 設定（共享記憶體、4 MiB UDP 緩衝區），
