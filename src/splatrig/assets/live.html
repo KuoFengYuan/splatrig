@@ -330,6 +330,8 @@ async function status() {
   else if (S.odom_publishers > 1) chip("c-slam", "bad", `${S.odom_publishers} GLIM running — stop the extra one`);
   else if (S.odom_age_s === null) chip("c-slam", "warn", "SLAM initializing");
   else if (S.odom_age_s > 1) chip("c-slam", "warn", `SLAM no update ${S.odom_age_s.toFixed(0)} s`);
+  else if (fresh && L.clock === "host_arrival_suspected")
+    chip("c-slam", "warn", `SLAM ${S.odom_hz.toFixed(0)} Hz · no PTP: map smears when moving`);
   else chip("c-slam", "ok", `SLAM ${S.odom_hz.toFixed(0)} Hz · ${(S.map_voxels / 1000).toFixed(0)}k voxels`);
   if (S.enabled && wantMap) { wantMap = false; $("mode").value = "map"; $("mode").dispatchEvent(new Event("change")); }
   $("pv").disabled = !C.configured;

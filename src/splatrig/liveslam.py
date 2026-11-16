@@ -2,10 +2,13 @@
 """Live GLIM preview for the capture console: route, current pose and a voxel map.
 
 The console republishes Livox frames as PointCloud2 with per-point time, starts
-glim_rosnode, and accumulates GLIM's corrected per-scan clouds into a voxel map
-that keeps the first point of each voxel. The live map is a preview: earlier
-voxels are not moved by later loop closures, so final data comes from the
-offline run of the recorded bag.
+glim_rosnode, and accumulates GLIM's corrected per-scan clouds into a voxel map.
+A voxel enters the map only when returns from two scans at least `confirm_s`
+apart fall into it, so a person walking past or an arm swinging through the view
+leaves no trail; returns within `near_m` of the sensor (the operator holding the
+rig, its cable) are left out of the map but stay in the newest-scan view. The live
+map is a preview: earlier voxels are not moved by later loop closures, so final
+data comes from the offline run of the recorded bag.
 
 A console that dies without its cleanup (a second Ctrl+C, a closed terminal, a
 crash) leaves glim_rosnode running in its own session, and a second GLIM then
@@ -54,15 +57,28 @@ def cloud_points(message):
                one.unpack_from(data, start + intensity[0])[0] if intensity else 0.0)
 
 
-class SlamState:
-    """Trajectory and first-point voxel map from GLIM's live topics."""
+def voxel_key(x: float, y: float, z: float, size: float) -> int:
+    """One integer per voxel (21 bits per axis, about ±52 km at 5 cm)."""
+    bias = 1 << 20
+    return (((math.floor(x / size) + bias) << 42) | ((math.floor(y / size) + bias) << 21)
+            | (math.floor(z / size) + bias))
 
-    def __init__(self, voxel=0.05, max_voxels=3_000_000, camera: Pose | None = None):
+
+class SlamState:
+    """Trajectory and confirmed-voxel map from GLIM's live topics."""
+
+    def __init__(self, voxel=0.05, max_voxels=3_000_000, camera: Pose | None = None,
+                 near_m=0.6, confirm_s=0.5, pending_s=10.0, max_pending=1_000_000):
         self.lock = threading.Lock()
         self.voxel = voxel
         self.max_voxels = max_voxels
         self.camera = camera  # T_rig_sphere (rig = GLIM's IMU frame), if calibrated
-        self.voxels = set()
+        self.near_m = near_m
+        self.confirm_s = confirm_s
+        self.pending_s = pending_s
+        self.max_pending = max_pending
+        self.voxels = set()  # confirmed voxel keys
+        self.pending = {}  # voxel key -> first return time, oldest first
         self.map = bytearray()
         self.dropped = 0
         self.route = bytearray()
@@ -81,20 +97,41 @@ class SlamState:
                 self.route += struct.pack("<fff", *position)
                 self.route_last = tuple(position)
 
-    def add_scan(self, points):
+    def add_scan(self, points, received=None):
+        """Add one map-frame scan; the newest pose is taken as the sensor position."""
+        now = time.time() if received is None else received
         new, scan = bytearray(), bytearray()
         with self.lock:
+            origin = self.pose.translation if self.pose else None
+            near = self.near_m ** 2
+            voxels, pending, size = self.voxels, self.pending, self.voxel
             for x, y, z, i in points:
-                scan += MAP_POINT.pack(x, y, z, i)
-                key = (math.floor(x / self.voxel), math.floor(y / self.voxel),
-                       math.floor(z / self.voxel))
-                if key in self.voxels:
+                record = MAP_POINT.pack(x, y, z, i)
+                scan += record
+                if origin is not None and ((x - origin[0]) ** 2 + (y - origin[1]) ** 2 +
+                                           (z - origin[2]) ** 2) < near:
                     continue
-                if len(self.voxels) >= self.max_voxels:
+                key = voxel_key(x, y, z, size)
+                if key in voxels:
+                    continue
+                first = pending.get(key)
+                if first is None:
+                    pending[key] = now
+                    continue
+                if now - first < self.confirm_s:
+                    continue
+                del pending[key]
+                if len(voxels) >= self.max_voxels:
                     self.dropped += 1
                     continue
-                self.voxels.add(key)
-                new += MAP_POINT.pack(x, y, z, i)
+                voxels.add(key)
+                new += record
+            # Insertion order is first-return order: expire unconfirmed voxels from the front.
+            while pending:
+                key = next(iter(pending))
+                if now - pending[key] <= self.pending_s and len(pending) <= self.max_pending:
+                    break
+                del pending[key]
             self.map += new
             self.latest = bytes(scan)
             self.scans += 1
@@ -135,10 +172,12 @@ class SlamState:
         with self.lock:
             times = list(self.odom_times)
             voxels, dropped, scans = len(self.voxels), self.dropped, self.scans
+            pending = len(self.pending)
         recent = [t for t in times if now - t <= 2]
         rate = (len(recent) - 1) / (recent[-1] - recent[0]) if len(recent) > 1 and \
             recent[-1] > recent[0] else 0.0
         return {"odom_hz": round(rate, 2), "map_voxels": voxels, "map_dropped": dropped,
+                "map_pending": pending,
                 "scans": scans, "odom_publishers": self.publishers, **self.pose_status(now)}
 
 

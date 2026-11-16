@@ -123,7 +123,8 @@ class ServerTests(unittest.TestCase):
 
     def test_slam_endpoints(self):
         slam = SlamState()
-        slam.add_scan([(1, 2, 3, 4), (1.01, 2, 3, 5)])
+        slam.add_scan([(1, 2, 3, 4), (1.01, 2, 3, 5)], received=0)
+        slam.add_scan([(1, 2, 3, 4), (1.01, 2, 3, 5)], received=1)  # confirms the voxel
         slam.add_odometry((0.5, 0, 0), (1, 0, 0, 0))
         server = ThreadingHTTPServer(("127.0.0.1", 0),
                                      make_handler(self.lidar, self.camera, self.recorder, slam))

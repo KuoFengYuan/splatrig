@@ -222,13 +222,19 @@ tools/splatrig-ros live            # --gopro none for LiDAR only
 - `--slam` also starts `glim_rosnode` (CPU modules, ROS publishing enabled) in a
   temporary folder, feeds it the Livox frames as PointCloud2 with per-point time on
   `/splatrig/glim_points`, and adds a **Map** view: GLIM's corrected scans in a 5 cm
-  first-point voxel map, the route (2 cm spacing) and the current IMU pose. With
+  voxel map, the route (2 cm spacing) and the current IMU pose. A voxel joins the
+  map only when scans at least 0.5 s apart both return from it, and unconfirmed
+  voxels expire after 10 s, so people walking past or a swinging arm leave no
+  trail; returns within 0.6 m of the sensor (the operator, the cable, a desk right
+  under the rig) stay out of the map but remain in the cyan newest scan. Without
+  PTP the LiDAR and IMU stamps are host arrival times, GLIM drifts while moving and
+  walls double; the SLAM chip says so. With
   `--calibration calibration.json --camera-offset X Y Z` the MAX2 forward axis is
   drawn too. `?view=map` opens the Map view; "Hide ceiling" drops points more than
   1 m above the current pose. The live map is not moved by later loop closures and
   is a preview; datasets still come from the offline run of the recorded bag.
   Replaying the 27 s rotation bag in an isolated domain gave 10 Hz odometry and a
-  23k-voxel map with no dropped voxels.
+  17k-voxel map (23k before confirmation was required) with no dropped voxels.
 - In the Map view the pose is polled every 0.1 s and GLIM's newest scan ("Live
   scan", cyan) every 0.2 s; the map and route refresh every second.
 - GLIM runs in its own session, so a console that dies without its cleanup leaves

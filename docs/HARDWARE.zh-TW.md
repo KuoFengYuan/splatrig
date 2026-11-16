@@ -190,11 +190,15 @@ tools/splatrig-ros live            # 只用 LiDAR 時加 --gopro none
   `FASTRTPS_DEFAULT_PROFILES_FILE` 設為 `src/splatrig/assets/fastdds.xml`。
 - `--slam` 會在暫存資料夾啟動 `glim_rosnode`（CPU 模組、開啟 ROS 發布），把 Livox 幀以
   含逐點時間的 PointCloud2 發布到 `/splatrig/glim_points`，並新增 **Map** 視角：
-  GLIM 修正後的掃描以 5 cm 首點體素地圖累積，並顯示路線（間隔 2 cm）與目前的 IMU 位姿。
+  GLIM 修正後的掃描以 5 cm 體素地圖累積，並顯示路線（間隔 2 cm）與目前的 IMU 位姿。
+  體素要在相隔至少 0.5 秒的兩幀掃描中都有回波才會加入地圖，未確認的體素 10 秒後丟棄，
+  所以走過的人或揮動的手臂不會留下殘影；距離感測器 0.6 m 內的回波（拿設備的人、線材、
+  設備正下方的桌面）不加入地圖，但仍會顯示在青色的最新掃描中。沒有 PTP 時，LiDAR 與
+  IMU 時間戳是主機收包時間，GLIM 在移動時會漂移、牆面變兩層，SLAM 狀態燈會提示。
   搭配 `--calibration calibration.json --camera-offset X Y Z` 時也會畫出 MAX2 的前方軸。
   `?view=map` 直接開啟 Map 視角；「Hide ceiling」隱藏高於目前位姿 1 m 以上的點。
   即時地圖不會因之後的閉環而移動，僅供預覽；資料集仍由錄製 bag 的離線處理產生。
-  在獨立 domain 中重播 27 秒旋轉 bag：里程計 10 Hz、地圖 23k 體素且無丟棄。
+  在獨立 domain 中重播 27 秒旋轉 bag：里程計 10 Hz、地圖 17k 體素（未要求確認前為 23k）且無丟棄。
 - Map 視角每 0.1 秒更新位姿、每 0.2 秒更新 GLIM 最新一幀掃描（「Live scan」，青色），
   地圖與路線每秒更新。
 - GLIM 在獨立的 session 中執行，介面若未完成清理就結束，GLIM 會繼續執行；之後再啟動的
