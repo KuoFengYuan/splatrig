@@ -89,6 +89,15 @@ class SlamState:
         self.latest = b""  # newest GLIM scan, map frame, MAP_POINT records
         self.publishers = None  # odometry publishers seen by ROS discovery
 
+    def reset(self):
+        """Forget the map, route, pose and scan, as for a new scan."""
+        with self.lock:
+            self.voxels, self.pending = set(), {}
+            self.map, self.route = bytearray(), bytearray()
+            self.route_last = self.pose = None
+            self.odom_times.clear()
+            self.latest, self.scans, self.dropped = b"", 0, 0
+
     def add_odometry(self, position, quaternion_wxyz, received=None):
         with self.lock:
             self.pose = Pose(position, quaternion_wxyz)
@@ -253,28 +262,48 @@ def reap_orphans(root: Path | None = None, proc=Path("/proc"), timeout=30.0) -> 
 
 
 class GlimProcess:
-    """glim_rosnode in a temporary folder, with its log kept for diagnosis."""
+    """glim_rosnode in a temporary folder, with its log kept for diagnosis.
 
-    def __init__(self):
-        from .glim import write_glim_config
+    restart() replaces it with a fresh GLIM, so a new scan starts a new SLAM session
+    instead of continuing the drift of earlier ones. `command` is for tests.
+    """
+
+    def __init__(self, command=None):
+        self.command = command
+        self.lock = threading.Lock()
+        self.restarts = 0
         self.reaped = reap_orphans()
+        self._launch()
+
+    def _launch(self):
+        from .glim import write_glim_config
         self.folder = Path(tempfile.mkdtemp(prefix=LIVE_PREFIX))
         (self.folder / OWNER_FILE).write_text(str(os.getpid()))
         write_glim_config(self.folder / "config", points_topic=GLIM_POINTS_TOPIC, publish=True)
         self.log = (self.folder / "glim.log").open("wb")
         self.process = subprocess.Popen(
-            ["ros2", "run", "glim_ros", "glim_rosnode", "--ros-args",
-             "-p", f"config_path:={self.folder / 'config'}",
-             "-p", f"dump_path:={self.folder / 'dump'}"],
+            self.command or ["ros2", "run", "glim_ros", "glim_rosnode", "--ros-args",
+                             "-p", f"config_path:={self.folder / 'config'}",
+                             "-p", f"dump_path:={self.folder / 'dump'}"],
             stdout=self.log, stderr=subprocess.STDOUT, env=dict(os.environ),
             start_new_session=True)
 
     def running(self) -> bool:
         return self.process.poll() is None
 
-    def stop(self):
+    def _stop(self):
         # ros2 run exits before glim_rosnode, so wait on the whole process group.
         stop_group(self.process.pid, leader=self.process)
         self.process.wait()
         self.log.close()
         shutil.rmtree(self.folder, ignore_errors=True)
+
+    def stop(self):
+        with self.lock:
+            self._stop()
+
+    def restart(self):
+        with self.lock:
+            self._stop()
+            self._launch()
+            self.restarts += 1
