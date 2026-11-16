@@ -29,6 +29,32 @@ PRESETS = {
 }
 # The downward view of a handheld rig shows the mount and the operator's hands.
 PRESETS["cube-no-down"] = [view for view in PRESETS["cube"] if view[0] != "down"]
+# Dual-lens 360 cameras (MAX2): the lenses look along sphere +Z and -Z and are stitched
+# along the great circle z = 0, which the cube's side and up views cross. These views
+# stay inside one lens each, at least 8 degrees from that seam with an 80-degree field.
+PRESETS["lens"] = [("front", 0, 0), ("front-right", 40, 0), ("front-left", -40, 0),
+                   ("front-up", 0, 40), ("back", 180, 0), ("back-right", -140, 0),
+                   ("back-left", 140, 0), ("back-up", 180, 40)]
+PRESET_FOV = {"lens": 80.0}
+
+
+def seam_margin_deg(view: "View", fov_deg: float, samples=20) -> float:
+    """Smallest angle between a view's border rays and the lens seam (z = 0).
+
+    Negative when the view crosses the seam: its pixels then come from both lenses.
+    """
+    q, half = view.rotation(), math.tan(math.radians(fov_deg) / 2)
+    worst, side = 90.0, 0
+    for i in range(samples + 1):
+        for j in (0, samples) if i not in (0, samples) else range(samples + 1):
+            x, y = half * (2 * i / samples - 1), half * (2 * j / samples - 1)
+            ray = rotate(q, (x, y, 1.0))
+            z = ray[2] / math.sqrt(sum(c * c for c in ray))
+            if side and (z > 0) != (side > 0):
+                return -1.0
+            side = 1 if z > 0 else -1
+            worst = min(worst, math.degrees(math.asin(min(1.0, abs(z)))))
+    return worst
 INTERPOLATIONS = ("line", "cubic", "lanczos")
 # Measured v360 bilinear noise is about 0.4 input pixels at worst with no mean bias;
 # a half-pixel or axis convention error exceeds these limits.
@@ -197,10 +223,12 @@ def image_size(ffprobe: str, path: Path):
 
 
 def panorama_views(source: Path, destination: Path, *, layout="cube", views_file=None,
-                   size=1024, fov_deg=90.0, interp="lanczos", ffmpeg="ffmpeg",
+                   size=1024, fov_deg=None, interp="lanczos", ffmpeg="ffmpeg",
                    ffprobe="ffprobe") -> dict:
     source = source.resolve()
     views = load_views(None if views_file else layout, views_file)
+    if fov_deg is None:
+        fov_deg = 90.0 if views_file else PRESET_FOV.get(layout, 90.0)
     params = pinhole_params(size, fov_deg)
     if interp not in INTERPOLATIONS:
         raise ValueError(f"Interpolation must be one of {', '.join(INTERPOLATIONS)}")

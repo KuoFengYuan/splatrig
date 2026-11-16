@@ -370,8 +370,22 @@ roll 繞相機前方軸），因此 rig 維持 `uncalibrated`；相機時鐘為�
 - **近距離點**：距離感測器 0.6 m 內（`--min-range`）的 LiDAR 點，不放進掃描資料和
   `points.ply`，數量記在 `assembly.json` 的 `points_near_sensor`。這些點是拿設備的人、
   支架和線材。
-- **向下視角**：預設版面 `cube-no-down` 只輸出前、右、後、左、上五個視角，因為手持設備的
-  向下視角拍到的是支架和手。`--layout cube` 可保留六個視角。
+- **以鏡頭分組的全解析度視角**：MAX2 的兩顆鏡頭朝向球面 +Z 與 −Z，接縫在 z = 0 的大圓上。
+  這條接縫正好穿過 cube 的右、左、上、下四個視角中間，兩顆鏡頭在那裡亮度不同、近物視差
+  也對不上。
+  - 預設版面 `lens` 在每顆鏡頭內各切出四個 80° 的視角：正前、左右各 40°、往上 40°，每個
+    都離接縫至少 8.4°。`process.json` 記錄每個視角的 `seam_margin_deg`，跨過接縫時為負值。
+  - 每個視角是獨立的 COLMAP 相機，訓練器可以分別補償兩顆鏡頭的曝光（LichtFeld `--ppisp`）。
+  - 全景以 7680 px 解碼（`--width`），保留 MAX2 原有的每度約 21 px；之前用 3840 px 只剩一半。
+    視角大小為 1600 px（`--size`）。
+  - 仍可用 `--layout cube-no-down`（五個 90° 的 cube 視角）或 `cube`。
+  - 2026-11-16 的桌面掃描：26 幀產出 208 張影像（原本 135 張），全程 155 秒、4.5 GB
+    記憶體，資料集 634 MB。
+  - LichtFeld 訓練 30k 次、100 萬個 Gaussian、`--mask-mode ignore`、每 8 張保留 1 張測試：
+    保留的正前視角 PSNR 23.68／SSIM 0.877／LPIPS 0.293，原本的 cube 版面為
+    17.87／0.628／0.438（26 張對 4 張）。
+  - 每幀有 8 個視角時，`--test-every 8` 只會抽到正前視角；用 `--test-every 7` 才會輪流抽到
+    每個視角。
 - **遮罩**：`dataset/masks/<影像檔名>` 以 0 表示忽略、255 表示可用，這是 COLMAP、nerfstudio
   與 LichtFeld 的慣例。LichtFeld 訓練時加 `--mask-mode ignore`；原版 3DGS 訓練器不讀遮罩。
   - **設備**：LiDAR、底座與握把依幾何遮掉，位置取自校正量到的相機位移。模型分三段：

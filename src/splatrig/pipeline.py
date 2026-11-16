@@ -215,8 +215,8 @@ def camera_offset_from_imus(camera: dict, lidar: dict, result: dict,
 def process_capture(capture: Path, output: Path, *, camera_offset=None,
                     camera_ypr=None, calibration: Path | None = None,
                     video: Path | None = None, gopro_host: str | None = None, every=None,
-                    spacing_m=0.15, spacing_deg=10.0, max_turn_dps=30.0, width=3840,
-                    view_size=1024, layout="cube-no-down", min_range_m=0.6, masks=True,
+                    spacing_m=0.15, spacing_deg=10.0, max_turn_dps=30.0, width=7680,
+                    view_size=1600, layout="lens", min_range_m=0.6, masks=True,
                     max_mask_fraction=0.25, colors=True, voxel_m=0.03, max_voxels=2_000_000,
                     rig_radius_m=0.08, person_python=None,
                     glim_domain=73, min_clock_correlation=0.9, progress=None) -> dict:
@@ -235,7 +235,7 @@ def process_capture(capture: Path, output: Path, *, camera_offset=None,
     from .keyframes import select_keyframes
     from .livox import import_livox
     from .max2 import extract, frame_times_ns, probe
-    from .panorama import panorama_views
+    from .panorama import View, panorama_views, seam_margin_deg
     from .personmask import TORCH_PYTHON, run as run_person_masks
     from .selfmask import any_rule, estimate, in_bins, rig_rule, write_masks
     from .session import VoxelBudget, prepare
@@ -328,6 +328,10 @@ def process_capture(capture: Path, output: Path, *, camera_offset=None,
         step("views")
         steps["views"] = panorama_views(work / "session-panorama", work / "session",
                                         layout=layout, size=view_size)
+        for view in steps["views"]["views"]:  # MAX2 lens seam: negative means crossed
+            view["seam_margin_deg"] = round(seam_margin_deg(
+                View(view["name"], view["yaw_deg"], view["pitch_deg"], view["roll_deg"]),
+                steps["views"]["fov_deg"]), 1)
         rig = read_json(work / "session-panorama/rig.json")
         T_rig_sphere = Pose.from_dict(rig["panorama"]["T_rig_sphere"])
         bins = None

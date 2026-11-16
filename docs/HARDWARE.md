@@ -443,9 +443,27 @@ ambiguous (peaks 0.215 at −25° and 0.208 at −135°) and is not used.
 - **Near points.** LiDAR points closer than 0.6 m to the sensor (`--min-range`) are
   left out of the session and `points.ply` and counted in `assembly.json`
   (`points_near_sensor`). These are the operator, the mount and the cable.
-- **Downward view.** The default layout `cube-no-down` writes front, right, back, left
-  and up. The downward view of a handheld rig shows the mount and the hands.
-  `--layout cube` keeps all six.
+- **Lens views at full resolution.** The MAX2's two lenses look along sphere +Z and
+  −Z and are stitched along the great circle z = 0. That seam runs through the
+  middle of the cube's right, left, up and down views, where brightness and
+  near-object parallax jump between lenses.
+  - The default layout `lens` cuts four 80° views inside each lens: ahead, 40° to
+    either side and 40° up. Each stays at least 8.4° from the seam; `process.json`
+    records every view's `seam_margin_deg`, which is negative for a view that
+    crosses it.
+  - Each view is a separate COLMAP camera, so a trainer can correct exposure per
+    lens (LichtFeld `--ppisp`).
+  - Panoramas are decoded at 7680 px (`--width`), the MAX2's full ~21 px/degree;
+    the previous 3840 px halved it. Views are 1600 px (`--size`).
+  - `--layout cube-no-down` (five 90° cube views) and `cube` remain available.
+  - On the 2026-11-16 desk scan, 26 frames gave 208 images instead of 135. The run
+    took 155 s and 4.5 GB of memory, and the dataset is 634 MB.
+  - LichtFeld, 30k iterations, 1M Gaussians, `--mask-mode ignore`, every 8th image
+    held out. Held-out front views scored PSNR 23.68 / SSIM 0.877 / LPIPS 0.293
+    against 17.87 / 0.628 / 0.438 for the previous cube layout (26 against 4
+    images).
+  - With 8 views per frame, `--test-every 8` holds out only front views;
+    `--test-every 7` rotates through all of them.
 - **Masks.** `dataset/masks/<image name>` marks pixels to ignore with 0 and usable
   pixels with 255. This is the COLMAP, nerfstudio and LichtFeld convention; train
   LichtFeld with `--mask-mode ignore`. The original 3DGS trainer ignores masks.
