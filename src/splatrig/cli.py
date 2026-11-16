@@ -150,6 +150,11 @@ def parser():
                          help="Drop LiDAR points closer than this to the sensor, meters")
     process.add_argument("--no-masks", action="store_true",
                          help="Do not write masks/ for the operator and the mount")
+    process.add_argument("--rig-radius", type=float, default=0.08,
+                         help="Radius of the rig masked under the LiDAR, meters")
+    process.add_argument("--person-python",
+                         help="Python with torch and torchvision for person masks "
+                              "(default: $SPLATRIG_TORCH_PYTHON)")
     process.add_argument("--no-colors", action="store_true",
                          help="Keep map points gray instead of colouring them from the panoramas")
     process.add_argument("--voxel", type=float, default=0.03,
@@ -242,6 +247,8 @@ def main(argv=None):
                                      spacing_deg=args.spacing_deg, max_turn_dps=args.max_turn,
                                      min_range_m=args.min_range, masks=not args.no_masks,
                                      colors=not args.no_colors, voxel_m=args.voxel,
+                                     rig_radius_m=args.rig_radius,
+                                     person_python=args.person_python,
                                      width=args.width, view_size=args.size, layout=args.layout,
                                      progress=lambda name: print(f"[{name}]", file=sys.stderr,
                                                                  flush=True))

@@ -14,7 +14,12 @@ place, so nothing is estimated unless the rig travelled `min_extent_m` (the span
 its positions while moving). A narrow corridor walked straight can still look like
 part of the rig; `max_fraction` in the pipeline rejects implausibly large masks.
 
-Masks follow the COLMAP and nerfstudio convention: 0 = ignore, 255 = use.
+The rig itself (the LiDAR under the camera, its mount and handle) is masked from
+geometry instead: `rig_rule` models it as a cylinder under the LiDAR, placed by the
+calibrated camera offset. People, including the operator's hands, are better found
+in the images; see personmask.py.
+
+Masks follow the COLMAP, nerfstudio and LichtFeld convention: 0 = ignore, 255 = use.
 """
 
 from __future__ import annotations
@@ -133,13 +138,62 @@ def estimate(points: Path, trajectory: Trajectory, T_lidar_sphere: Pose, *, near
                                      / (4 * math.pi), 4)}
 
 
-def view_mask(bins: set, q_sphere_camera, width: int, height: int, params, step=8,
+def in_bins(bins, size=BIN_DEG):
+    """Ignore rule: sphere directions that fall in the given direction bins."""
+    bins = {tuple(b) for b in bins}
+    return lambda ray: direction_bin(*sphere_direction(*ray), size) in bins
+
+
+def rig_rule(T_lidar_sphere: Pose, radius_m=0.08, top_m=0.015, height_m=0.08,
+             handle_m=0.03, handle_length_m=0.4):
+    """Ignore rule: rays from the camera that hit the LiDAR, its mount or the handle.
+
+    The rig below the camera is modeled in the LiDAR frame as a vertical cylinder of
+    `radius_m` from `top_m` above the LiDAR origin down `height_m` (the housing and
+    the plate it sits on), continued downward by a `handle_m` cylinder of
+    `handle_length_m` (the handle).
+    The Mid-360 housing is 65 mm wide and its point origin lies about 47 mm above
+    its 60 mm base, so the defaults leave a margin.
+    """
+    cx, cy, cz = T_lidar_sphere.translation
+    q = T_lidar_sphere.quaternion_wxyz
+    bottom = top_m - height_m
+
+    def near_axis(dx, dy, first, last, radius):
+        """Whether the ray comes within `radius` of the axis for t in [first, last]."""
+        if last < first:
+            return False
+        flat = dx * dx + dy * dy
+        closest = -(cx * dx + cy * dy) / flat if flat else first
+        s = min(max(closest, first), last)
+        return (cx + s * dx) ** 2 + (cy + s * dy) ** 2 <= radius * radius
+
+    def hits(ray):
+        dx, dy, dz = rotate(q, ray)
+        if dz >= 0 or cz <= top_m:
+            return False
+        at_top, at_bottom = (top_m - cz) / dz, (bottom - cz) / dz
+        at_end = (bottom - handle_length_m - cz) / dz
+        return (near_axis(dx, dy, at_top, at_bottom, radius_m) or
+                near_axis(dx, dy, at_bottom, at_end, handle_m))
+    return hits
+
+
+def any_rule(*rules):
+    rules = [rule for rule in rules if rule is not None]
+    return lambda ray: any(rule(ray) for rule in rules)
+
+
+def view_mask(ignore, q_sphere_camera, width: int, height: int, params, step=8,
               size=BIN_DEG) -> tuple[bytes, float]:
     """Grayscale PNG for one PINHOLE camera (0 = ignore) and its ignored fraction.
 
-    Evaluated on a step x step pixel grid and repeated, which is ample for masks
-    built from 2-degree bins.
+    `ignore` is a rule taking a sphere-frame ray, or a set of direction bins. It is
+    evaluated on a step x step pixel grid and repeated, which is ample for masks
+    built from 2-degree bins or a rig model.
     """
+    if not callable(ignore):
+        ignore = in_bins(ignore, size)
     fx, fy, cx, cy = params
     rows, ignored = [], 0
     for top in range(0, height, step):
@@ -148,7 +202,7 @@ def view_mask(bins: set, q_sphere_camera, width: int, height: int, params, step=
         for left in range(0, width, step):
             u = min(left + step / 2, width - 0.5)
             ray = rotate(q_sphere_camera, ((u - cx) / fx, (v - cy) / fy, 1.0))
-            value = 0 if direction_bin(*sphere_direction(*ray), size) in bins else 255
+            value = 0 if ignore(ray) else 255
             span = min(step, width - left)
             row += bytes([value]) * span
             if not value:
@@ -157,15 +211,17 @@ def view_mask(bins: set, q_sphere_camera, width: int, height: int, params, step=
     return png_bytes(width, height, rows, channels=1), ignored / (width * height)
 
 
-def write_masks(dataset: Path, records, cameras: dict, T_rig_sphere: Pose, bins) -> dict:
-    """masks/<image name> for every exported image; images of one camera share a file."""
-    bins = {tuple(b) for b in bins}
+def write_masks(dataset: Path, records, cameras: dict, T_rig_sphere: Pose, ignore) -> dict:
+    """masks/<image name> for every exported image; images of one camera share a file.
+
+    `ignore` is a rule taking a sphere-frame ray, or a set of direction bins.
+    """
     folder = dataset / "masks"
     folder.mkdir()
     shared, fractions = {}, {}
     for camera_id, camera in sorted(cameras.items()):
         T_sphere_camera = T_rig_sphere.inverse().compose(camera.T_rig_camera)
-        data, fraction = view_mask(bins, T_sphere_camera.quaternion_wxyz, camera.width,
+        data, fraction = view_mask(ignore, T_sphere_camera.quaternion_wxyz, camera.width,
                                    camera.height, camera.params)
         shared[camera_id] = folder / f".camera-{camera_id}.png"
         shared[camera_id].write_bytes(data)

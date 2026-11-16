@@ -276,3 +276,46 @@ class PointTimeTests(unittest.TestCase):
         self.assertEqual(len(data.point_times), len(data.points))
         self.assertTrue(all(isinstance(t, int) for t in data.point_times))
         self.assertGreater(len(set(data.point_times)), 1)
+
+
+class RigMaskTests(unittest.TestCase):
+    def test_rig_cylinder_under_the_camera(self):
+        from splatrig.selfmask import any_rule, rig_rule
+        # Camera 8 cm above the LiDAR origin, looking along LiDAR +X (sphere +Z).
+        rule = rig_rule(lidar_sphere((0.0, 0.0, 0.08)))
+
+        def ray(azimuth, elevation):  # sphere frame: +Z front, +X right, +Y down
+            a, e = math.radians(azimuth), math.radians(elevation)
+            return (math.cos(e) * math.sin(a), -math.sin(e), math.cos(e) * math.cos(a))
+        self.assertTrue(rule(ray(0, -90)))  # straight down: the LiDAR
+        self.assertTrue(rule(ray(123, -60)))  # the plate, any direction
+        self.assertFalse(rule(ray(0, -20)))  # shallow: passes over the plate
+        self.assertFalse(rule(ray(0, 10)))  # upward
+        # Steep enough to pass the plate's edge low, but too far out for the handle.
+        self.assertFalse(rule(ray(0, -35)))
+        # Offset camera: the rig appears toward the LiDAR, not straight down.
+        offset = rig_rule(lidar_sphere((-0.15, 0.0, 0.08)))
+        self.assertFalse(offset(ray(0, -89.9)))
+        self.assertTrue(offset(ray(0, -30)))
+        self.assertFalse(offset(ray(180, -30)))
+        both = any_rule(offset, None, lambda r: r[1] < -0.99)  # plus "straight up"
+        self.assertTrue(both(ray(0, 90)) and both(ray(0, -30)) and not both(ray(90, 0)))
+
+
+class PersonMaskRunnerTests(unittest.TestCase):
+    def test_helper_contract_and_failures(self):
+        import sys
+        from splatrig.personmask import run
+        self.assertIn("SPLATRIG_TORCH_PYTHON", run(Path("x"), python=None, command=None)["skipped"]
+                      if not __import__("os").environ.get("SPLATRIG_TORCH_PYTHON") else
+                      "SPLATRIG_TORCH_PYTHON")
+        script = ("import json, sys; args = sys.argv[1:]; "
+                  "print('loading'); print(json.dumps({'masks': 3, 'args': args}))")
+        report = run(Path("/data/set"), command=[sys.executable, "-c", script],
+                     rotate_cameras=[5], score=0.6, dilate=4)
+        self.assertEqual(report["masks"], 3)
+        self.assertEqual(report["args"], ["/data/set", "--score", "0.6", "--dilate", "4",
+                                          "--rotate-cameras", "5"])
+        failing = [sys.executable, "-c", "import sys; sys.stderr.write('No module named torch\\n'); sys.exit(1)"]
+        with self.assertRaisesRegex(ValueError, "No module named torch"):
+            run(Path("/data/set"), command=failing)

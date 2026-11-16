@@ -198,10 +198,32 @@ def checks(port=8090, gopro="auto", slam=True, environ=None, procs=None,
     if camera and not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
         out.append(Check("ffmpeg", "warn", "not found; no MAX2 preview or video processing",
                          "sudo apt install ffmpeg"))
+    out.append(person_check(environ))
     out.append(Check("Console port", "ok", f"{port} free") if port_free(port) else
                Check("Console port", "fail", f"{port} is in use; a console may already be running",
                      f"open http://127.0.0.1:{port}/ or stop that console (Ctrl+C), or use --port"))
     return out
+
+
+def person_check(environ=None, run=None) -> Check:
+    """Whether person masks can run: a Python with torch and torchvision."""
+    python = (os.environ if environ is None else environ).get("SPLATRIG_TORCH_PYTHON")
+    fix = ("put 'export SPLATRIG_TORCH_PYTHON=<python with torch and torchvision>' in "
+           "~/.config/splatrig/env")
+    if not python:
+        return Check("Person masks", "warn", "off; people stay in the dataset images", fix)
+    run = run or (lambda: subprocess.run([python, "-c", "import torch, torchvision; print("
+                                          "torch.cuda.is_available())"], capture_output=True,
+                                         text=True, timeout=60))
+    try:
+        result = run()
+    except (OSError, subprocess.SubprocessError) as error:
+        return Check("Person masks", "warn", f"{python} cannot run: {error}", fix)
+    if result.returncode:
+        return Check("Person masks", "warn", f"{python} lacks torch or torchvision", fix)
+    gpu = result.stdout.strip() == "True"
+    return Check("Person masks", "ok" if gpu else "warn",
+                 "torch with CUDA" if gpu else "torch without CUDA; masks will be slow")
 
 
 def format_checks(results) -> str:

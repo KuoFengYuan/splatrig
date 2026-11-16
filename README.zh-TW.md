@@ -77,6 +77,13 @@ splatting 用的 COLMAP 資料集。掃描時可在瀏覽器介面看到即時�
    tools/splatrig-app --install
    ```
 
+6. 選用：要遮掉畫面中的人，需要一個裝有 PyTorch 與 torchvision 的 Python（建議有 CUDA）：
+
+   ```sh
+   mkdir -p ~/.config/splatrig
+   echo 'export SPLATRIG_TORCH_PYTHON=/path/to/python' >> ~/.config/splatrig/env
+   ```
+
 ## 使用
 
 ### 1. 準備設備
@@ -132,7 +139,7 @@ tools/splatrig-ros start    # 啟動 driver、GLIM 與介面
 按 **Copy dataset path** 可以複製資料夾路徑。
 
 資料集寫在 `~/splatrig-runs/<錄影名稱>/dataset/`，為 COLMAP 格式：`images/`、
-`sparse/0/`、有顏色的 `points.ply`，能估計操作者時另有 `masks/`。之前的錄影在
+`sparse/0/`、有顏色的 `points.ply`，以及遮掉設備與人的 `masks/`。之前的錄影在
 **Captures** 裡。
 
 ### 6. 訓練
@@ -144,7 +151,11 @@ tools/splatrig-ros start    # 啟動 driver、GLIM 與介面
 python train.py -s ~/splatrig-runs/<錄影名稱>/dataset
 ```
 
-支援遮罩的訓練器（例如 nerfstudio）也可以使用 `masks/`。
+使用 LichtFeld Studio 時請套用遮罩，設備與人才不會被訓練進去：
+
+```sh
+LichtFeld-Studio -d ~/splatrig-runs/<錄影名稱>/dataset --mask-mode ignore
+```
 
 結束時在終端機按 Ctrl+C，介面、GLIM 與 driver 會一起關閉。
 

@@ -10,6 +10,7 @@ Final export therefore refuses this session unless --allow-provisional is given.
 from __future__ import annotations
 
 import math
+import os
 from pathlib import Path
 import shutil
 
@@ -217,11 +218,13 @@ def process_capture(capture: Path, output: Path, *, camera_offset=None,
                     spacing_m=0.15, spacing_deg=10.0, max_turn_dps=30.0, width=3840,
                     view_size=1024, layout="cube-no-down", min_range_m=0.6, masks=True,
                     max_mask_fraction=0.25, colors=True, voxel_m=0.03, max_voxels=2_000_000,
+                    rig_radius_m=0.08, person_python=None,
                     glim_domain=73, min_clock_correlation=0.9, progress=None) -> dict:
     """Capture folder from `splatrig live` -> provisional COLMAP dataset.
 
     Frames are chosen along the trajectory (every=None) or every Nth frame; points
-    within min_range_m of the LiDAR are dropped; masks/ marks the operator and mount.
+    within min_range_m of the LiDAR are dropped; masks/ marks the rig (from the
+    calibrated offset) and people (with person_python or $SPLATRIG_TORCH_PYTHON).
     progress, if given, is called with the name of each step as it starts.
     """
     from .colorize import colorize, session_panoramas
@@ -233,7 +236,8 @@ def process_capture(capture: Path, output: Path, *, camera_offset=None,
     from .livox import import_livox
     from .max2 import extract, frame_times_ns, probe
     from .panorama import panorama_views
-    from .selfmask import estimate, write_masks
+    from .personmask import TORCH_PYTHON, run as run_person_masks
+    from .selfmask import any_rule, estimate, in_bins, rig_rule, write_masks
     from .session import VoxelBudget, prepare
 
     def step(name):
@@ -363,10 +367,32 @@ def process_capture(capture: Path, output: Path, *, camera_offset=None,
         step("export")
         export_colmap(data, work / "dataset")
         steps["dataset"] = data.report
-        if bins:
-            steps["self_mask"].update(write_masks(
-                work / "dataset", read_jsonl(work / "dataset/image-poses.jsonl"),
-                data.cameras, T_rig_sphere, bins))
+        if masks:
+            records = list(read_jsonl(work / "dataset/image-poses.jsonl"))
+            people = bool(person_python or os.environ.get(TORCH_PYTHON))
+            rig_mask = rig_rule(Pose.from_dict(steps["assembly"]["T_lidar_sphere"]),
+                                radius_m=rig_radius_m)
+
+            def static_masks(with_lidar):
+                # The LiDAR operator estimate also takes in nearby scene, so it is used
+                # only when person masks are not available.
+                rule = any_rule(rig_mask, in_bins(bins) if bins and with_lidar else None)
+                shutil.rmtree(work / "dataset/masks", ignore_errors=True)
+                return {"rig": {"model": "cylinder under the LiDAR", "radius_m": rig_radius_m},
+                        "operator_from_lidar": bool(bins and with_lidar),
+                        **write_masks(work / "dataset", records, data.cameras, T_rig_sphere,
+                                      rule)}
+            steps["masks"] = static_masks(not people)
+            if people:
+                step("people")
+            turned = [index for index, view in enumerate(steps["views"]["views"], 1)
+                      if abs(view["pitch_deg"]) >= 60]
+            try:
+                steps["masks"]["people"] = run_person_masks(work / "dataset", person_python,
+                                                            turned)
+            except ValueError as error:
+                steps["masks"] = static_masks(True)
+                steps["masks"]["people"] = {"masks": 0, "failed": str(error)}
         summary = {"capture": str(capture), "provisional": True,
                    "dataset": str(output / "dataset"),
                    "camera_offset_m": list(camera_offset), "camera_offset_source": offset_source,

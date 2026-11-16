@@ -67,7 +67,10 @@ class CheckTests(unittest.TestCase):
 
     def test_ready_machine(self):
         results = self.run_checks([SUDO, PTP, DRIVER])
-        self.assertTrue(all(c.level == "ok" for c in results), format_checks(results))
+        # Person masks are optional; without SPLATRIG_TORCH_PYTHON they only warn.
+        self.assertTrue(all(c.level == "ok" for c in results if c.name != "Person masks"),
+                        format_checks(results))
+        self.assertEqual([c.level for c in results if c.name == "Person masks"], ["warn"])
         found = {c.name: c.detail for c in results}
         self.assertIn("172.24.132.51", found["MAX2"])
         self.assertIn("reused", found["Livox driver process"])
@@ -125,6 +128,20 @@ class DriverTests(unittest.TestCase):
             with self.assertRaises(ProcessLookupError):
                 import os
                 os.killpg(group, 0)
+
+
+
+class PersonCheckTests(unittest.TestCase):
+    def test_person_mask_environment(self):
+        from types import SimpleNamespace as NS
+        from splatrig.startup import person_check
+        self.assertEqual(person_check({}).level, "warn")
+        ok = person_check({"SPLATRIG_TORCH_PYTHON": "py"}, run=lambda: NS(returncode=0, stdout="True\n"))
+        self.assertEqual((ok.level, ok.detail), ("ok", "torch with CUDA"))
+        cpu = person_check({"SPLATRIG_TORCH_PYTHON": "py"}, run=lambda: NS(returncode=0, stdout="False\n"))
+        self.assertEqual(cpu.level, "warn")
+        missing = person_check({"SPLATRIG_TORCH_PYTHON": "py"}, run=lambda: NS(returncode=1, stdout=""))
+        self.assertIn("lacks torch", missing.detail)
 
 
 if __name__ == "__main__":

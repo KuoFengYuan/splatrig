@@ -21,7 +21,7 @@ NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 SETTINGS = "console.json"
 STAGES = {"calibrate": ["video", "fit"],
           "dataset": ["lidar", "slam", "video", "frames", "assembly", "views", "masks", "colors",
-                      "export"]}
+                      "export", "people"]}
 MAX_OFFSET_M = 2.0
 
 
@@ -204,14 +204,17 @@ class Processor:
                                       camera_offset=None if same else offset,
                                       gopro_host=self.gopro_host, progress=progress)
                 steps = report.get("steps", {})
-                mask = steps.get("self_mask", {})
+                mask = steps.get("masks", {})
+                people = mask.get("people", {})
                 keyframes = steps.get("keyframes", {})
                 result = {"dataset": report.get("dataset"),
                           "images": steps.get("dataset", {}).get("frames"),
                           "points": steps.get("dataset", {}).get("voxel_points"),
                           "keyframes": keyframes.get("selected"),
                           "too_fast": keyframes.get("too_fast"),
-                          "masks": mask.get("masks"), "mask_note": mask.get("reason"),
+                          "masks": mask.get("masks"),
+                          "people": people.get("person_fraction_by_camera") is not None,
+                          "mask_note": people.get("skipped") or people.get("failed"),
                           "provisional": report.get("provisional", True)}
                 self.settings["camera_offset"] = list(offset)
             self.save_settings()

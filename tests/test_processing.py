@@ -64,7 +64,8 @@ class FakeJobs:
         return {"dataset": str(output / "dataset"), "provisional": True,
                 "steps": {"dataset": {"frames": 45, "voxel_points": 22973},
                           "keyframes": {"selected": 9, "too_fast": 128},
-                          "self_mask": {"masks": 0, "reason": "rig travelled 0.3 m"}}}
+                          "masks": {"masks": 45, "people": {
+                              "masks": 0, "skipped": "set SPLATRIG_TORCH_PYTHON"}}}}
 
 
 def wait(processor):
@@ -141,8 +142,8 @@ class ProcessorTests(unittest.TestCase):
         job = wait(self.processor)
         self.assertEqual(job["result"], {
             "dataset": str(self.root / "capture-scan" / "dataset"), "images": 45,
-            "points": 22973, "keyframes": 9, "too_fast": 128, "masks": 0,
-            "mask_note": "rig travelled 0.3 m", "provisional": True})
+            "points": 22973, "keyframes": 9, "too_fast": 128, "masks": 45, "people": False,
+            "mask_note": "set SPLATRIG_TORCH_PYTHON", "provisional": True})
         self.assertEqual(self.jobs.calls[-1], ("dataset", "capture-scan", "capture-scan",
                                                "calibration.json", (0.0, 0.0, 0.083)))
         self.assertEqual(self.mounts[-1], (calibration, (0.0, 0.0, 0.083)))
