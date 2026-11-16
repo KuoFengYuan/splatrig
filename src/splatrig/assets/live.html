@@ -555,7 +555,8 @@ $("rec").addEventListener("click", () => {
 
 // ---------- sheet: review, processing, captures ----------
 const STAGE = {lidar: "Read LiDAR", slam: "SLAM (GLIM)", video: "MAX2 video", frames: "Choose photos", assembly: "Assemble",
-  views: "Cut views", masks: "Operator masks", colors: "Colour points", export: "Export COLMAP",
+  views: "Cut views", masks: "LiDAR operator estimate", colors: "Colour points", export: "Export COLMAP",
+  people: "Rig and person masks",
   fit: "Fit gyroscopes and accelerometers"};
 function openSheet(mode) { sheetMode = mode; $("sheet").hidden = false; $("t-captures").setAttribute("aria-pressed", String(mode === "captures"));
   renderSheet().then(() => { const first = $("sheet").querySelector(".primary, .list button, .close"); if (first) first.focus(); }); }
@@ -622,7 +623,8 @@ async function renderSheet() {
     else if (r) out.push(el("div", {className: "facts"}, fact(String(r.images), "images"), fact(String(r.keyframes ?? "?"), "photos"),
         fact(r.points ? `${Math.round(r.points / 1000)}k` : "?", "coloured points"), fact(r.masks ? String(r.masks) : "none", "masks")),
       el("ul", {className: "notes"}, r.too_fast ? el("li", {className: "warn", textContent: `${r.too_fast} video frames were turning too fast and were skipped`}) : null,
-        r.masks ? null : el("li", {className: "warn", textContent: `No operator masks: ${r.mask_note || "off"}`}),
+        r.people ? el("li", {className: "good", textContent: "People and the rig are masked; train with masks (LichtFeld: --mask-mode ignore)"})
+          : el("li", {className: "warn", textContent: `Only the rig is masked: ${r.mask_note || "person masks are off"}`}),
         el("li", {textContent: "Provisional: the camera offset and timing are not verified against the images."})),
       el("p", {className: "path", textContent: r.dataset}));
     const actions = el("div", {className: "actions"});

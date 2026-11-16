@@ -405,9 +405,32 @@ ambiguous (peaks 0.215 at −25° and 0.208 at −135°) and is not used.
 - **Downward view.** The default layout `cube-no-down` writes front, right, back, left
   and up. The downward view of a handheld rig shows the mount and the hands.
   `--layout cube` keeps all six.
-- **Operator masks.** `dataset/masks/<image name>` marks pixels to ignore with 0 and
-  usable pixels with 255. This is the COLMAP and nerfstudio convention; the original
-  3DGS trainer ignores masks. How the masks are estimated:
+- **Masks.** `dataset/masks/<image name>` marks pixels to ignore with 0 and usable
+  pixels with 255. This is the COLMAP, nerfstudio and LichtFeld convention; train
+  LichtFeld with `--mask-mode ignore`. The original 3DGS trainer ignores masks.
+  - **Rig.** The LiDAR, its mount and the handle are masked from geometry, placed by
+    the calibrated camera offset. The model has three parts:
+    - an 8 cm-radius cylinder from 1.5 cm above the LiDAR origin, 8 cm tall
+      (`--rig-radius`);
+    - continued by a 3 cm handle, 40 cm long.
+
+    On the 2026-11-16 mount this covers the LiDAR dome and its plate in the
+    panoramas, and 22% of the front view.
+  - **People.** People are found in each image by torchvision's Mask R-CNN v2 (COCO,
+    BSD licence; weights downloaded on first use). This includes the operator's head,
+    body, arms and hands, and people walking past.
+    - Views looking up or down are also run at three right-angle turns.
+    - Person pixels are widened by 12 px.
+    - The helper runs in a separate Python with torch and torchvision, set by
+      `SPLATRIG_TORCH_PYTHON` (or `--person-python`). Put the variable in
+      `~/.config/splatrig/env`; `tools/splatrig-ros` reads it.
+    - Without it, `process.json` (`masks.people`) says it was skipped. If the helper
+      fails, the error is recorded and the LiDAR estimate below is used instead.
+    - On the 27 s walking capture of 2026-11-16, 85 images took 7 s on an RTX 5070.
+      People covered 25% of the right view, 55% of the back view and 18% of the up
+      view. The operator's head, body, arms and hands were covered, and a jacket on a
+      chair was also taken for a person.
+  - **LiDAR operator estimate** (used only without person masks). How it works:
   - While the rig moves, a LiDAR direction (2° bins) whose returns are mostly closer
     than 0.8 m is taken to be part of the rig or the operator.
   - Those returns are carried into the camera's sphere frame and widened by 4°.

@@ -4,13 +4,18 @@
 # Conda and other shell state are dropped; LIVOX_WS overrides ~/ws_livox.
 # Positional parameters are cleared before sourcing: ROS setup scripts read them.
 # Desktop session variables pass through so `start` can open a browser.
+# Machine settings such as SPLATRIG_TORCH_PYTHON live outside the repository in
+# ${XDG_CONFIG_HOME:-~/.config}/splatrig/env.
 set -euo pipefail
 repo="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+config="${XDG_CONFIG_HOME:-$HOME/.config}/splatrig/env"
+if [ -f "$config" ]; then source "$config"; fi
 exec env -i HOME="$HOME" USER="${USER:-}" LANG="${LANG:-C.UTF-8}" TERM="${TERM:-dumb}" \
   PATH=/usr/bin:/bin ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}" \
   DISPLAY="${DISPLAY:-}" WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" XAUTHORITY="${XAUTHORITY:-}" \
   XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-}" \
   SPLATRIG_REPO="$repo" LIVOX_WS="${LIVOX_WS:-$HOME/ws_livox}" \
+  SPLATRIG_TORCH_PYTHON="${SPLATRIG_TORCH_PYTHON:-}" \
   bash -c 'args=("$@"); set --
            source /opt/ros/jazzy/setup.bash && source "$LIVOX_WS/install/setup.bash"
            PYTHONPATH="$SPLATRIG_REPO/src:$PYTHONPATH" exec /usr/bin/python3 -m splatrig "${args[@]}"' \

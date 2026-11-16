@@ -78,6 +78,14 @@ Run `conda deactivate` before building.
    tools/splatrig-app --install
    ```
 
+6. Optional, to mask people: a Python with PyTorch and torchvision (CUDA
+   recommended):
+
+   ```sh
+   mkdir -p ~/.config/splatrig
+   echo 'export SPLATRIG_TORCH_PYTHON=/path/to/python' >> ~/.config/splatrig/env
+   ```
+
 ## Usage
 
 ### 1. Prepare the rig
@@ -139,8 +147,8 @@ few minutes and lists each step. When it finishes, **Copy dataset path** copies 
 folder path.
 
 The dataset is written to `~/splatrig-runs/<capture>/dataset/` in COLMAP layout:
-`images/`, `sparse/0/`, `points.ply` with colours, and `masks/` when the operator
-could be estimated. Earlier recordings are under **Captures**.
+`images/`, `sparse/0/`, `points.ply` with colours, and `masks/` for the rig and
+people. Earlier recordings are under **Captures**.
 
 ### 6. Train
 
@@ -151,7 +159,11 @@ Use any trainer that reads COLMAP folders. For example, with the original
 python train.py -s ~/splatrig-runs/<capture>/dataset
 ```
 
-Trainers that support masks (for example nerfstudio) can also use `masks/`.
+With LichtFeld Studio, use the masks so the rig and people are not trained:
+
+```sh
+LichtFeld-Studio -d ~/splatrig-runs/<capture>/dataset --mask-mode ignore
+```
 
 Press Ctrl+C in the terminal to stop the console, GLIM and the driver.
 
