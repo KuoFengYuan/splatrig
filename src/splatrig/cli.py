@@ -53,7 +53,8 @@ def parser():
     layout.add_argument("--views", type=Path, metavar="JSON",
                         help="List of {name, yaw_deg, pitch_deg, roll_deg}")
     views.add_argument("--size", type=int, default=1024, metavar="PIXELS")
-    views.add_argument("--fov-deg", type=float, default=90.0)
+    views.add_argument("--fov-deg", type=float,
+                       help="Field of view of every view (default: the layout's, 90 for cube)")
     views.add_argument("--interp", choices=INTERPOLATIONS, default="lanczos")
     views.add_argument("--ffmpeg", default="ffmpeg")
     views.add_argument("--ffprobe", default="ffprobe")
@@ -159,9 +160,11 @@ def parser():
                          help="Keep map points gray instead of colouring them from the panoramas")
     process.add_argument("--voxel", type=float, default=0.03,
                          help="Map point spacing for 3DGS initialization, meters")
-    process.add_argument("--width", type=int, default=3840)
-    process.add_argument("--size", type=int, default=1024)
-    process.add_argument("--layout", choices=sorted(PRESETS), default="cube-no-down")
+    process.add_argument("--width", type=int, default=7680,
+                         help="Panorama width; 7680 keeps the MAX2's full resolution")
+    process.add_argument("--size", type=int, default=1600, help="View size in pixels")
+    process.add_argument("--layout", choices=sorted(PRESETS), default="lens",
+                         help="lens: views inside one MAX2 lens each, clear of the seam")
     gyro = commands.add_parser(
         "calibrate-gyro", help="MAX2-to-LiDAR rotation and clock offset from a rotation capture")
     gyro.add_argument("capture", type=Path)

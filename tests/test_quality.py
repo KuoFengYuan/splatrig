@@ -170,6 +170,22 @@ class LayoutAndExtractTests(unittest.TestCase):
     def test_default_layout_drops_the_downward_view(self):
         names = [view.name for view in load_views("cube-no-down")]
         self.assertEqual(names, ["front", "right", "back", "left", "up"])
+
+    def test_lens_views_stay_clear_of_the_seam(self):
+        from splatrig.panorama import PRESET_FOV, seam_margin_deg
+        fov = PRESET_FOV["lens"]
+        views = load_views("lens")
+        self.assertEqual(len(views), 8)
+        margins = {view.name: seam_margin_deg(view, fov) for view in views}
+        self.assertTrue(all(m >= 8 for m in margins.values()), margins)
+        # Each lens keeps its own views: front views look forward (+Z), back views back.
+        for view in views:
+            from splatrig.geometry import rotate
+            forward = rotate(view.rotation(), (0, 0, 1))[2]
+            self.assertEqual(forward > 0, view.name.startswith("front"), view.name)
+        cube = {view.name: seam_margin_deg(view, 90) for view in load_views("cube")}
+        self.assertTrue(all(cube[n] < 0 for n in ("right", "left", "up", "down")), cube)
+        self.assertGreater(cube["front"], 30)
         self.assertEqual(select_expression([3, 10]), "eq(n\\,3)+eq(n\\,10)")
 
     @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg and ffprobe are required")
