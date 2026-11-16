@@ -129,6 +129,45 @@ details input { width: 80px; padding: 6px; border-radius: 8px; border: 1px solid
 .list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .list button { width: 100%; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255, 255, 255, .05); }
 .list small { display: block; color: var(--muted); }
+.controls { display: grid; grid-template-columns: 1fr auto auto auto; gap: 6px; margin-bottom: 10px; }
+.controls input, .controls select, .rename input { min-width: 0; padding: 7px 10px; border-radius: 10px; border: 1px solid var(--line);
+  background: #000; color: var(--text); font: inherit; font-size: 13px; }
+.cards { list-style: none; margin: 0 0 10px; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.card { width: 100%; padding: 0; border-radius: 12px; border: 1px solid var(--line); background: rgba(255, 255, 255, .05);
+  text-align: left; overflow: hidden; display: flex; flex-direction: column; }
+.card.picked, .card[aria-pressed="true"] { outline: 2px solid var(--accent); }
+.card img, .card .nocover { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; background: #111; }
+.card .meta { padding: 8px 10px; display: grid; gap: 3px; }
+.card .meta b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card small, .deleted-row small { color: var(--muted); font-size: 11px; }
+.tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.tag.good { color: var(--ok); border-color: rgba(48, 209, 88, .5); } .tag.bad { color: var(--bad); border-color: rgba(255, 69, 58, .5); }
+.tag.accent { color: var(--accent); border-color: rgba(10, 132, 255, .6); }
+.empty { display: grid; gap: 4px; text-align: center; padding: 24px 8px; color: var(--muted); }
+.empty b { color: var(--text); }
+.row-link { background: none; border: 0; color: var(--accent); padding: 8px 0; font-size: 13px; text-align: left; }
+.danger { min-height: 42px; border-radius: 12px; font-weight: 600; background: rgba(255, 69, 58, .14); color: #ff8a80;
+  border: 1px solid rgba(255, 69, 58, .45); }
+.small { min-height: 32px; padding: 4px 12px; font-size: 13px; border-radius: 9px; }
+.deleted-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; padding: 8px 0;
+  border-bottom: 1px solid var(--line); }
+.deleted-row div { display: grid; gap: 2px; min-width: 0; } .soon { color: var(--warn) !important; }
+.rename { display: flex; align-items: center; gap: 8px; margin: -6px 0 12px; }
+.rename .sub { margin: 0; flex: 1; }
+.rename input { flex: 1; }
+.preview-bar { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 14px; border-radius: 12px; background: var(--panel);
+  border: 1px solid var(--accent); font-size: 13px; }
+.strip { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 6px; overflow-x: auto; padding: 10px 14px max(12px, env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, rgba(0, 0, 0, .8)); }
+.strip button { flex: none; padding: 0; border: 2px solid transparent; border-radius: 8px; background: #111; overflow: hidden; }
+.strip button[aria-current="true"] { border-color: var(--accent); }
+.photo-overlay { position: absolute; top: 0; bottom: 0; left: 50%; height: 100%; width: auto; transform: translateX(-50%);
+  pointer-events: none; opacity: .5; }
+.preview-bar input[type=range] { width: 110px; }
+#preview-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46vw; }
+.preview-bar label { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.strip img { display: block; width: 112px; height: 112px; object-fit: cover; }
 .path { font-family: ui-monospace, monospace; font-size: 12px; overflow-wrap: anywhere; color: var(--muted); margin: 0 0 12px; }
 
 @media (max-width: 640px) {
@@ -136,6 +175,10 @@ details input { width: 80px; padding: 6px; border-radius: 8px; border: 1px solid
   .center { grid-column: 2; } .rail { right: 6px; } .tool { width: 54px; font-size: 10px; }
   .minimap { width: 96px; height: 96px; } .spacer { width: 96px; } .pip { right: 66px; width: 46vw; }
   .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cards { grid-template-columns: minmax(0, 1fr); } .controls { grid-template-columns: 1fr 1fr; }
+  .strip img { width: 84px; height: 84px; }
+  #preview-text { max-width: 24vw; } .preview-bar input[type=range] { width: 64px; }
+  .preview-bar { max-width: calc(100vw - 112px); gap: 6px; padding-left: 10px; } .preview-bar button { white-space: nowrap; }
 }
 </style>
 </head>
@@ -151,6 +194,10 @@ details input { width: 80px; padding: 6px; border-radius: 8px; border: 1px solid
     <div class="center">
       <div class="timer" id="timer">Ready</div>
       <div class="guide" id="guide" role="status" aria-live="polite"></div>
+      <div class="preview-bar" id="preview-bar" hidden><span id="preview-text"></span>
+        <label id="photo-label" hidden>Photo <input id="photo-opacity" type="range" min="0" max="100" value="50"
+          aria-label="Photo opacity over the points"></label>
+        <button class="secondary small" id="preview-exit" type="button">Exit preview</button></div>
     </div>
     <div class="stats" id="stats"></div>
   </header>
@@ -179,8 +226,8 @@ details input { width: 80px; padding: 6px; border-radius: 8px; border: 1px solid
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" stroke-dasharray="3 3"/><circle cx="12" cy="12" r="2"/></svg>Live scan</button>
     <button class="tool" type="button" id="t-camera" aria-pressed="false" title="MAX2 preview">
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="18" height="12" rx="2"/><circle cx="12" cy="13" r="3"/><path d="M8 7l2-3h4l2 3"/></svg>Camera</button>
-    <button class="tool" type="button" id="t-captures" aria-pressed="false" title="Recorded captures and processing">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Captures</button>
+    <button class="tool" type="button" id="t-captures" aria-pressed="false" title="Your scans: review, process, preview and delete">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="8" height="7" rx="1.5"/><rect x="13" y="4" width="8" height="7" rx="1.5"/><rect x="3" y="13" width="8" height="7" rx="1.5"/><rect x="13" y="13" width="8" height="7" rx="1.5"/></svg>Scans</button>
   </nav>
 
   <div class="pip" id="pip" hidden><span>MAX2 preview · not exposure-timed</span></div>
@@ -197,6 +244,8 @@ details input { width: 80px; padding: 6px; border-radius: 8px; border: 1px solid
     </div>
     <div class="spacer"></div>
   </div>
+  <img class="photo-overlay" id="photo" alt="" hidden>
+  <div class="strip" id="strip" role="list" aria-label="Dataset images" hidden></div>
   <div class="toast" id="err" role="alert"></div>
 
   <section class="sheet" id="sheet" role="dialog" aria-labelledby="sheet-title" hidden>
@@ -225,7 +274,8 @@ const vs = `attribute vec4 a; uniform mat4 m; uniform float s; uniform int mode;
 vec3 ramp(float t){ t=clamp(t,0.,1.); return clamp(vec3(1.5-abs(4.*t-3.),1.5-abs(4.*t-2.),1.5-abs(4.*t-1.)),0.,1.); }
 vec3 cover(float t){ t=clamp(t,0.,1.); return t<.5 ? mix(vec3(1.,.27,.23),vec3(1.,.62,.04),t*2.) : mix(vec3(1.,.62,.04),vec3(.19,.82,.35),t*2.-1.); }
 void main(){ gl_Position = a.z > zmax ? vec4(2.,2.,2.,1.) : m*vec4(a.xyz,1.); gl_PointSize=s;
-  c = mode==0 ? ramp((a.z+1.5)/4.) : mode==2 ? cover(a.w/30.) : vec3(.4); }`;
+  c = mode==0 ? ramp((a.z+1.5)/4.) : mode==2 ? cover(a.w/30.) :
+      mode==4 ? vec3(floor(a.w/65536.), mod(floor(a.w/256.), 256.), mod(a.w, 256.))/255. : vec3(.4); }`;
 const fs = `precision mediump float; varying vec3 c; uniform float u; uniform vec3 solid; void main(){ gl_FragColor=vec4(u>0.?c:solid,1.); }`;
 function shader(type, src) { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
   if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
@@ -236,7 +286,9 @@ const loc = {a: gl.getAttribLocation(prog, "a"), m: gl.getUniformLocation(prog, 
   mode: gl.getUniformLocation(prog, "mode"), u: gl.getUniformLocation(prog, "u"),
   solid: gl.getUniformLocation(prog, "solid"), zmax: gl.getUniformLocation(prog, "zmax")};
 const cloudBuf = gl.createBuffer(), gridBuf = gl.createBuffer(), mapBuf = gl.createBuffer(),
-  routeBuf = gl.createBuffer(), markBuf = gl.createBuffer(), scanBuf = gl.createBuffer(), cellBuf = gl.createBuffer();
+  routeBuf = gl.createBuffer(), markBuf = gl.createBuffer(), scanBuf = gl.createBuffer(), cellBuf = gl.createBuffer(),
+  dsBuf = gl.createBuffer(), camBuf = gl.createBuffer();
+let dsCount = 0, camCount = 0, preview = null, lookingFrom = null;
 let cloudCount = 0, mapCount = 0, routeCount = 0, markCount = 0, scanCount = 0, cellCount = 0, viewMode = "";
 const tools = {follow: true, top: false, cover: false, ceiling: true, live: true, camera: false};
 const target = [0, 0, 0];
@@ -250,8 +302,8 @@ gl.bindBuffer(gl.ARRAY_BUFFER, gridBuf); gl.bufferData(gl.ARRAY_BUFFER, new Floa
 
 const home = {yaw: -2.4, pitch: 0.55, dist: 18};
 const view = {...home};
-function mat(yaw, pitch, dist, aspect, t) {
-  const f = 1 / Math.tan(0.5), n = 0.05, far = 400;
+function mat(yaw, pitch, dist, aspect, t, fov = 1.0) {
+  const f = 1 / Math.tan(fov / 2), n = 0.05, far = 400;
   const p = [f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + n) / (n - far), -1, 0, 0, 2 * far * n / (n - far), 0];
   const cp = Math.cos(pitch), off = [dist * cp * Math.cos(yaw), dist * cp * Math.sin(yaw), dist * Math.sin(pitch)];
   const e = [t[0] + off[0], t[1] + off[1], t[2] + off[2]];
@@ -274,7 +326,9 @@ function draw() {
   gl.enable(gl.DEPTH_TEST);
   const map = viewMode === "map";
   gl.uniform1f(loc.zmax, map && tools.ceiling ? target[2] + 1.0 : 1e9);
-  gl.uniformMatrix4fv(loc.m, false, mat(view.yaw, view.pitch, view.dist, w / h, map ? target : [0, 0, 0]));
+  const centred = map || viewMode === "dataset";
+  if (viewMode === "dataset") gl.uniform1f(loc.zmax, tools.ceiling ? target[2] + 1.0 : 1e9);
+  gl.uniformMatrix4fv(loc.m, false, mat(view.yaw, view.pitch, view.dist, w / h, centred ? target : [0, 0, 0], view.fov || 1.0));
   gl.enableVertexAttribArray(loc.a);
   const lines = (buffer, count, color, stride, kind) => { if (!count) return;
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.vertexAttribPointer(loc.a, stride / 4 === 3 ? 3 : 4, gl.FLOAT, false, stride, 0);
@@ -293,6 +347,9 @@ function draw() {
     for (const [first, color] of [[0, [1, .3, .3]], [2, [.3, 1, .3]], [4, [.3, .5, 1]], [6, [1, .2, 1]]])
       if (markCount > first) { gl.bindBuffer(gl.ARRAY_BUFFER, markBuf); gl.vertexAttribPointer(loc.a, 3, gl.FLOAT, false, 12, 0);
         gl.uniform1f(loc.u, 0); gl.uniform3fv(loc.solid, color); gl.drawArrays(gl.LINES, first, 2); }
+  } else if (viewMode === "dataset") {
+    points(dsBuf, dsCount, null, 4, lookingFrom ? 3 : 2);
+    if (!lookingFrom) lines(camBuf, camCount, [1, .85, .2], 12, gl.LINES);
   } else points(cloudBuf, cloudCount, null, 0, 2);
 }
 let dirty = true;
@@ -310,8 +367,11 @@ const pointers = new Map(); let pinch = 0;
 canvas.addEventListener("pointerdown", (e) => { canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, [e.clientX, e.clientY]); });
 canvas.addEventListener("pointerup", (e) => { pointers.delete(e.pointerId); pinch = 0; });
 canvas.addEventListener("pointercancel", (e) => { pointers.delete(e.pointerId); pinch = 0; });
+function leavePhoto() { if (!lookingFrom) return; lookingFrom = null; view.fov = 1.0; $("photo").hidden = true;
+  $("photo-label").hidden = true; document.querySelectorAll("#strip button").forEach((x) => x.removeAttribute("aria-current")); }
 canvas.addEventListener("pointermove", (e) => {
   if (!pointers.has(e.pointerId)) return;
+  leavePhoto();
   const [x, y] = pointers.get(e.pointerId); pointers.set(e.pointerId, [e.clientX, e.clientY]);
   if (pointers.size === 1) { view.yaw -= (e.clientX - x) * 0.008; view.pitch += (e.clientY - y) * 0.008; clampPitch();
     if (tools.follow && viewMode === "map") setTool("follow", false); }
@@ -321,9 +381,10 @@ canvas.addEventListener("pointermove", (e) => {
   }
   redraw();
 });
-canvas.addEventListener("wheel", (e) => { e.preventDefault(); view.dist = Math.max(1, Math.min(200, view.dist * Math.exp(e.deltaY * 0.001))); redraw(); }, {passive: false});
+canvas.addEventListener("wheel", (e) => { e.preventDefault(); leavePhoto(); view.dist = Math.max(1, Math.min(200, view.dist * Math.exp(e.deltaY * 0.001))); redraw(); }, {passive: false});
 canvas.addEventListener("keydown", (e) => {
   const k = e.key;
+  if (k.startsWith("Arrow") || k === "+" || k === "-" || k === "=") leavePhoto();
   if (k === "ArrowLeft") view.yaw += 0.1; else if (k === "ArrowRight") view.yaw -= 0.1;
   else if (k === "ArrowUp") view.pitch += 0.1; else if (k === "ArrowDown") view.pitch -= 0.1;
   else if (k === "+" || k === "=") view.dist = Math.max(1, view.dist * 0.9);
@@ -431,8 +492,15 @@ function setMarker(pose, camera) {
 }
 function setMode(mode) {
   if (mode === viewMode) return; viewMode = mode;
-  for (const name of ["follow", "top", "cover", "ceiling", "live"]) $("t-" + name).disabled = mode !== "map";
+  for (const name of ["follow", "top", "cover", "ceiling", "live"])
+    $("t-" + name).disabled = !(mode === "map" || (mode === "dataset" && (name === "top" || name === "ceiling")));
   $("minimap").hidden = mode !== "map";
+  const previewing = mode === "dataset";
+  $("preview-bar").hidden = $("strip").hidden = !previewing;
+  $("guide").hidden = previewing;
+  document.querySelector(".shutter-wrap").hidden = previewing;
+  if (!previewing) leavePhoto();
+  if (previewing) { setTool("follow", false); $("hint").hidden = true; redraw(); return; }
   if (mode === "map") { view.dist = 10; view.pitch = 0.6; mapData(); poseData(); scanData(); cellData(); }
   else { Object.assign(view, home); points(); }
   redraw();
@@ -492,7 +560,7 @@ function render(s) {
   S = s;
   const L = s.lidar, C = s.camera, R = s.record, SL = s.slam, G = s.guide, P = s.process;
   const fresh = L.lidar_age_s !== null && L.lidar_age_s < 0.5;
-  if (SL.enabled && viewMode !== "map") setMode("map");
+  if (SL.enabled && viewMode !== "map" && viewMode !== "dataset") setMode("map");
   device("d-lidar", fresh && L.lidar_hz > 8 ? "ok" : fresh ? "warn" : "bad",
     fresh ? `LiDAR ${L.lidar_hz.toFixed(1)} Hz · ${(L.points_per_frame / 1000).toFixed(1)}k points` : "LiDAR no data");
   const imuFresh = L.imu_age_s !== null && L.imu_age_s < 0.5;
@@ -539,7 +607,7 @@ function render(s) {
   $("motion-fill").style.width = `${Math.min(100, motionLevel * 100)}%`;
   $("motion-fill").style.background = motionLevel >= 1 ? "var(--bad)" : motionLevel >= .8 ? "var(--warn)" : "var(--ok)";
 
-  if (wasRecording && !rec && R.folder) { reviewCapture = R.folder.split("/").pop(); reviewGuide = G; openSheet("review"); }
+  if (wasRecording && !rec && R.folder) { reviewCapture = R.folder.split("/").pop(); reviewGuide = G; saveCover(reviewCapture); openSheet("review"); }
   wasRecording = rec;
   if (sheetMode === "process") renderSheet();
 }
@@ -558,12 +626,12 @@ const STAGE = {lidar: "Read LiDAR", slam: "SLAM (GLIM)", video: "MAX2 video", fr
   views: "Cut views", masks: "LiDAR operator estimate", colors: "Colour points", export: "Export COLMAP",
   people: "Rig and person masks",
   fit: "Fit gyroscopes and accelerometers"};
-function openSheet(mode) { sheetMode = mode; $("sheet").hidden = false; $("t-captures").setAttribute("aria-pressed", String(mode === "captures"));
+function openSheet(mode) { sheetMode = mode; $("sheet").hidden = false; $("t-captures").setAttribute("aria-pressed", String(mode === "library" || mode === "deleted"));
   renderSheet().then(() => { const first = $("sheet").querySelector(".primary, .list button, .close"); if (first) first.focus(); }); }
 function closeSheet() { sheetMode = null; $("sheet").hidden = true; $("t-captures").setAttribute("aria-pressed", "false"); canvas.focus(); }
 $("sheet-close").addEventListener("click", closeSheet);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("sheet").hidden) closeSheet(); });
-$("t-captures").addEventListener("click", () => { if (sheetMode === "captures") closeSheet(); else openSheet("captures"); });
+$("t-captures").addEventListener("click", () => { if (sheetMode === "library") closeSheet(); else { selecting = false; selected.clear(); openSheet("library"); } });
 
 const fact = (value, label) => el("div", {className: "fact"}, el("b", {textContent: value}), el("span", {textContent: label}));
 function offsetInputs(P) {
@@ -585,20 +653,211 @@ async function startJob(kind) {
   try { await post(`/api/process/${kind}`, data); offsetEdited = false; showError(); sheetMode = "process"; await status(); renderSheet(); }
   catch (e) { showError(e); }
 }
-async function captureList() { try { return await (await fetch("/api/captures", {cache: "no-store"})).json(); } catch (e) { return []; } }
+// ---------- scans: library, Recently Deleted, detail, preview ----------
+let libraryQuery = {sort: "newest", filter: "all", q: ""}, selecting = false, renaming = false, searchTimer = 0;
+const selected = new Set();
+const fmtBytes = (b) => b == null ? "?" : b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : b >= 1e6 ? `${Math.round(b / 1e6)} MB` : `${Math.round(b / 1e3)} kB`;
+const fmtDate = (s) => new Date(s * 1000).toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"});
+const STATUS = {recording: ["bad", "Recording"], processing: ["accent", "Processing"], queued: ["", "Queued"],
+  failed: ["bad", "Failed"], dataset: ["good", "Dataset ready"], calibration: ["", "Calibration"], recorded: ["", "Not processed"]};
+async function getJSON(path) { const r = await fetch(path, {cache: "no-store"}); const b = await r.json();
+  if (!r.ok) throw new Error(b.error || r.status); return b; }
+const tag = (text, kind) => el("span", {className: "tag " + (kind || ""), textContent: text});
+function choice(options, value, label, onChange) {
+  const s = el("select", {ariaLabel: label}, ...options.map(([v, text]) => el("option", {value: v, textContent: text, selected: v === value})));
+  s.addEventListener("change", () => onChange(s.value)); return s;
+}
+function saveCover(id) { // a snapshot of the live map, taken right after drawing it
+  try { draw(); const c = document.createElement("canvas"); c.width = 480; c.height = Math.max(1, Math.round(480 * canvas.height / canvas.width));
+    c.getContext("2d").drawImage(canvas, 0, 0, c.width, c.height);
+    post("/api/scans/cover", {id, jpeg: c.toDataURL("image/jpeg", 0.8).split(",")[1]}).catch(() => {}); } catch (e) { /* no cover */ }
+}
+async function renderLibrary(body) {
+  let data;
+  try { data = await getJSON("/api/scans?" + new URLSearchParams(libraryQuery)); } catch (e) { body.replaceChildren(el("p", {textContent: String(e.message || e)})); return; }
+  if (sheetMode !== "library") return;
+  $("sheet-title").textContent = selecting ? `${selected.size} selected` : `Scans (${data.total})`;
+  const st = data.storage, keep = document.activeElement && document.activeElement.type === "search";
+  const search = el("input", {type: "search", placeholder: "Search by name", value: libraryQuery.q, ariaLabel: "Search scans by name"});
+  search.addEventListener("input", () => { libraryQuery.q = search.value; clearTimeout(searchTimer); searchTimer = setTimeout(renderSheet, 250); });
+  const pick = el("button", {type: "button", className: "secondary small", textContent: selecting ? "Cancel" : "Select"});
+  pick.addEventListener("click", () => { selecting = !selecting; selected.clear(); renderSheet(); });
+  const out = [el("p", {className: "sub", textContent: `Recordings ${fmtBytes(st.recordings_bytes)} · results ${fmtBytes(st.outputs_bytes)} · ${fmtBytes(st.free_bytes)} free`}),
+    el("div", {className: "controls"}, search,
+      choice([["newest", "Newest first"], ["oldest", "Oldest first"], ["name", "By name"], ["largest", "Largest first"]], libraryQuery.sort, "Sort scans", (v) => { libraryQuery.sort = v; renderSheet(); }),
+      choice([["all", "All scans"], ["dataset", "With a dataset"], ["unprocessed", "No dataset yet"]], libraryQuery.filter, "Filter scans", (v) => { libraryQuery.filter = v; renderSheet(); }),
+      pick)];
+  if (data.found !== data.total) out.push(el("p", {className: "sub", textContent: `${data.found} found`}));
+  if (!data.scans.length) {
+    out.push(el("div", {className: "empty"}, el("b", {textContent: data.total ? "No scans match" : "No scans yet"}),
+      el("span", {textContent: data.total ? "" : "Recorded scans are kept here for review, processing and deletion."})));
+    if (data.total) { const all = el("button", {type: "button", className: "secondary", textContent: "Show all scans"});
+      all.addEventListener("click", () => { libraryQuery = {sort: libraryQuery.sort, filter: "all", q: ""}; renderSheet(); }); out.push(all); }
+  }
+  const grid = el("ul", {className: "cards"});
+  for (const s of data.scans) {
+    const [kind, label] = STATUS[s.status] || ["", s.status];
+    const text = s.status === "processing" && s.stages ? `${label} ${Math.max(0, s.stages.indexOf(s.stage)) + 1}/${s.stages.length}` : label;
+    const cover = s.cover ? el("img", {src: `/api/scans/${encodeURIComponent(s.id)}/cover.jpg?${Date.now() >> 16}`, alt: "", loading: "lazy"}) : el("div", {className: "nocover"});
+    const card = el("button", {type: "button", className: "card" + (selected.has(s.id) ? " picked" : "")}, cover,
+      el("div", {className: "meta"}, el("b", {textContent: s.name}),
+        el("small", {textContent: `${fmtDate(s.started)} · ${s.duration_s != null ? fmtClock(s.duration_s) : "unfinished"} · ${fmtBytes(s.size_bytes)}`}),
+        el("div", {className: "tags"}, tag(text, kind), ...s.tags.map((x) => tag(x)))));
+    if (selecting) card.setAttribute("aria-pressed", String(selected.has(s.id)));
+    card.addEventListener("click", () => {
+      if (selecting) { if (selected.has(s.id)) selected.delete(s.id); else selected.add(s.id); renderSheet(); }
+      else { reviewCapture = s.id; reviewGuide = null; renaming = false; openSheet("review"); } });
+    grid.append(el("li", {}, card));
+  }
+  out.push(grid);
+  if (selecting) {
+    const del = el("button", {type: "button", className: "danger", textContent: `Delete selected (${selected.size})`});
+    del.disabled = !selected.size;
+    del.addEventListener("click", async () => {
+      if (!confirm(`Move ${selected.size} scan${selected.size > 1 ? "s" : ""} to Recently Deleted? They can be recovered for 30 days.`)) return;
+      try { await post("/api/scans/delete", {ids: [...selected]}); selecting = false; selected.clear(); showError(); } catch (e) { showError(e); }
+      renderSheet(); });
+    out.push(del);
+  }
+  const trash = el("button", {type: "button", className: "row-link", textContent: `Recently Deleted (${data.deleted})`});
+  trash.addEventListener("click", () => openSheet("deleted")); out.push(trash);
+  body.replaceChildren(...out);
+  if (keep) { search.focus(); search.setSelectionRange(search.value.length, search.value.length); }
+}
+async function renderDeleted(body) {
+  let list = [];
+  try { list = await getJSON("/api/scans/deleted"); } catch (e) { /* offline */ }
+  if (sheetMode !== "deleted") return;
+  $("sheet-title").textContent = "Recently Deleted";
+  const back = el("button", {type: "button", className: "row-link", textContent: "‹ Scans"});
+  back.addEventListener("click", () => openSheet("library"));
+  const out = [back, el("p", {className: "sub", textContent: "Deleted scans are kept for 30 days, then removed for good. Their space returns only then."})];
+  if (!list.length) out.push(el("div", {className: "empty"}, el("b", {textContent: "Nothing here"})));
+  for (const d of list) {
+    const recover = el("button", {type: "button", className: "secondary small", textContent: "Recover"});
+    const remove = el("button", {type: "button", className: "danger small", textContent: "Delete"});
+    recover.addEventListener("click", () => post("/api/scans/restore", {ids: [d.id]}).then(renderSheet, showError));
+    remove.addEventListener("click", () => {
+      if (prompt(`Delete "${d.name}" for good? Its recording and results cannot be recovered.\nType DELETE to confirm.`) !== "DELETE") return;
+      post("/api/scans/purge", {ids: [d.id]}).then(renderSheet, showError); });
+    out.push(el("div", {className: "deleted-row"}, el("div", {}, el("b", {textContent: d.name}),
+      el("small", {className: d.days_left <= 3 ? "soon" : "", textContent: `${d.days_left} days left · ${fmtBytes(d.size_bytes)}`})), recover, remove));
+  }
+  if (list.length) {
+    const all = el("button", {type: "button", className: "secondary", textContent: "Recover all"});
+    const empty = el("button", {type: "button", className: "danger", textContent: "Empty Recently Deleted"});
+    all.addEventListener("click", () => post("/api/scans/restore", {ids: list.map((d) => d.id)}).then(renderSheet, showError));
+    empty.addEventListener("click", () => {
+      if (prompt(`Delete all ${list.length} scans in Recently Deleted for good? Their recordings and results cannot be recovered.\nType DELETE to confirm.`) !== "DELETE") return;
+      post("/api/scans/purge", {ids: [], all: true}).then(renderSheet, showError); });
+    out.push(el("div", {className: "row"}, all, empty));
+  }
+  body.replaceChildren(...out);
+}
+async function renderReview(body) {
+  let data;
+  try { data = await getJSON("/api/scans"); } catch (e) { return; }
+  if (sheetMode !== "review") return;
+  const s = data.scans.find((x) => x.id === reviewCapture), P = S.process, job = P && P.job, busy = !!(job && !job.finished_ns);
+  if (!s) { $("sheet-title").textContent = "Scan"; body.replaceChildren(el("p", {textContent: "This scan is no longer in the library."})); return; }
+  const G = reviewGuide || s.guide, cal = P && P.calibration, video = s.video.length > 0;
+  $("sheet-title").textContent = (reviewGuide ? "✓ " : "") + s.name;
+  const head = el("div", {className: "rename"});
+  if (renaming) {
+    const input = el("input", {type: "text", value: s.custom_name ? s.name : "", placeholder: s.name, maxLength: 40, ariaLabel: "Scan name"});
+    const save = el("button", {type: "button", className: "secondary small", textContent: "Save"});
+    const done = () => post("/api/scans/rename", {id: s.id, name: input.value}).then(() => { renaming = false; renderSheet(); }, showError);
+    save.addEventListener("click", done);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") done(); if (e.key === "Escape") { e.stopPropagation(); renaming = false; renderSheet(); } });
+    head.append(input, save); setTimeout(() => input.focus(), 0);
+  } else {
+    const edit = el("button", {type: "button", className: "row-link", textContent: "Rename"});
+    edit.addEventListener("click", () => { renaming = true; renderSheet(); });
+    head.append(el("p", {className: "sub", textContent: `${fmtDate(s.started)} · ${fmtBytes(s.size_bytes)}`}), edit);
+  }
+  const out = [head, el("div", {className: "facts"}, fact(s.duration_s != null ? fmtClock(s.duration_s) : "—", "duration"),
+    fact(G ? `${G.distance_m.toFixed(1)} m` : "—", "walked"), fact(G ? String(G.photos) : "—", "photos"),
+    fact(G && G.coverage != null ? `${Math.round(G.coverage * 100)}%` : "—", "coverage"))];
+  const notes = [];
+  if (s.status === "failed") notes.push(["bad", `The last processing failed: ${s.last_error}`]);
+  if (s.status === "processing") notes.push(["", "Processing now; see the progress above the record button."]);
+  if (s.status === "queued") notes.push(["", "Waiting for the job before it to finish."]);
+  if (G && G.coverage != null && G.coverage < .6) notes.push(["warn", "Some surfaces were seen from one direction only; scan them from another side before leaving."]);
+  if (G && G.skipped) notes.push(["warn", `${G.skipped} stretch${G.skipped > 1 ? "es were" : " was"} too fast for photos`]);
+  if (G && G.max_new_ground_m >= 8) notes.push(["warn", `Walked ${G.max_new_ground_m} m without returning to a scanned area; drift may remain`]);
+  if (G && G.returns) notes.push(["good", `Returned to scanned areas ${G.returns} time${G.returns > 1 ? "s" : ""}`]);
+  if (!video) notes.push(["bad", "No MAX2 video in this scan: it can be neither a calibration nor a dataset"]);
+  if (s.current_calibration) notes.push(["good", "This scan is the current calibration"]);
+  else if (!cal) notes.push(["", "No calibration yet. If this scan turned the fixed rig about all three axes, use it as the calibration."]);
+  if (notes.length) out.push(el("ul", {className: "notes"}, ...notes.map(([c, x]) => el("li", {className: c, textContent: x}))));
+  const button = (text, kind, action, disabled) => { const b = el("button", {type: "button", className: kind, textContent: text});
+    b.disabled = !!disabled; b.addEventListener("click", action); return b; };
+  const make = button(s.dataset ? "Make the dataset again" : "Make 3DGS dataset", cal && !s.dataset ? "primary" : "secondary",
+    () => startJob("dataset"), !cal || !video || ["processing", "queued", "recording"].includes(s.status));
+  const calibrate = button("Use as calibration", cal ? "secondary" : "primary", () => startJob("calibrate"),
+    !video || ["processing", "queued", "recording"].includes(s.status));
+  const actions = el("div", {className: "actions"});
+  if (s.dataset) {
+    actions.append(button("Preview dataset", "primary", () => startPreview(s)));
+    const copy = navigator.clipboard ? button("Copy dataset path", "secondary", () => navigator.clipboard.writeText(s.dataset).then(() => showError(), showError)) : null;
+    actions.append(el("div", {className: "row"}, make, copy || calibrate));
+  } else actions.append(...(cal ? [make, calibrate] : [calibrate, make]));
+  if (s.status === "queued") actions.append(button("Remove from queue", "secondary", () => post("/api/process/unqueue", {capture: s.id}).then(() => { status(); renderSheet(); }, showError)));
+  const remove = [];
+  if (s.dataset) remove.push(button("Delete dataset", "danger", () => { if (confirm("Delete the dataset? The recording stays and can be processed again."))
+    post("/api/scans/delete-dataset", {id: s.id}).then(renderSheet, showError); }));
+  remove.push(button("Delete scan", "danger", () => { if (confirm(`Move "${s.name}" to Recently Deleted? It can be recovered for 30 days.`))
+    post("/api/scans/delete", {ids: [s.id]}).then(() => openSheet("library"), showError); }));
+  actions.append(el("div", {className: remove.length > 1 ? "row" : ""}, ...remove));
+  out.push(actions);
+  if (s.dataset) out.push(el("p", {className: "path", textContent: s.dataset}));
+  if (busy && job.capture !== s.id) out.push(el("p", {className: "sub", textContent: `Another job is running (${job.capture}); new jobs wait in line.`}));
+  if (P) out.push(offsetInputs(P));
+  body.replaceChildren(...out);
+}
+async function startPreview(s) {
+  try {
+    const [buf, cams] = await Promise.all([
+      fetch(`/api/scans/${encodeURIComponent(s.id)}/points`, {cache: "no-store"}).then((r) => { if (!r.ok) throw new Error("This scan has no dataset"); return r.arrayBuffer(); }),
+      getJSON(`/api/scans/${encodeURIComponent(s.id)}/cameras`)]);
+    const n = new DataView(buf).getUint32(0, true);
+    gl.bindBuffer(gl.ARRAY_BUFFER, dsBuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(buf, 4, n * 4), gl.STATIC_DRAW); dsCount = n;
+    const v = [];
+    for (const c of cams) { const [x, y, z] = c.center, f = c.forward, u = c.up, tip = [x + f[0] * .25, y + f[1] * .25, z + f[2] * .25];
+      v.push(x, y, z, ...tip, ...tip, tip[0] + u[0] * .08, tip[1] + u[1] * .08, tip[2] + u[2] * .08); }
+    gl.bindBuffer(gl.ARRAY_BUFFER, camBuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(v), gl.STATIC_DRAW); camCount = v.length / 3;
+    preview = {id: s.id, name: s.name, cameras: cams};
+    const mid = [0, 1, 2].map((k) => cams.reduce((a, c) => a + c.center[k], 0) / Math.max(1, cams.length));
+    target[0] = mid[0]; target[1] = mid[1]; target[2] = mid[2]; view.dist = 6; view.pitch = 0.7;
+    $("preview-text").textContent = `${s.name} · ${cams.length} images · ${n.toLocaleString()} coloured points`;
+    closeSheet(); setMode("dataset");
+    const strip = $("strip");
+    strip.replaceChildren(...cams.map((c, i) => { const b = el("button", {type: "button", title: `Look from image ${c.image}`, role: "listitem"},
+      el("img", {src: `/api/scans/${encodeURIComponent(s.id)}/thumb/${c.image}`, alt: `Image ${i + 1}`, loading: "lazy"}));
+      b.addEventListener("click", () => { strip.querySelectorAll("button").forEach((x) => x.removeAttribute("aria-current"));
+        b.setAttribute("aria-current", "true"); lookFrom(c); }); return b; }));
+    redraw();
+  } catch (e) { showError(e); }
+}
+function lookFrom(c) { // put the eye at the camera, looking where it looked, the photo laid over
+  const f = c.forward, d = 1.0;
+  lookingFrom = c; view.fov = (c.fov_deg || 57.3) * Math.PI / 180;
+  const photo = $("photo"); photo.src = `/api/scans/${encodeURIComponent(preview.id)}/thumb/${c.image}?w=1024&masked=0`;
+  photo.style.opacity = String($("photo-opacity").value / 100); photo.hidden = false; $("photo-label").hidden = false;
+  target[0] = c.center[0] + f[0] * d; target[1] = c.center[1] + f[1] * d; target[2] = c.center[2] + f[2] * d;
+  view.yaw = Math.atan2(-f[1], -f[0]); view.pitch = Math.asin(Math.max(-1, Math.min(1, -f[2]))); view.dist = d; redraw();
+}
+function exitPreview() { preview = null; const back = S && S.slam.enabled ? "map" : "scan"; setMode(back);
+  if (back === "map") setTool("follow", true);
+  if (reviewCapture) openSheet("review"); }
+$("preview-exit").addEventListener("click", exitPreview);
+$("photo-opacity").addEventListener("input", () => { $("photo").style.opacity = String($("photo-opacity").value / 100); });
 async function renderSheet() {
   if (!sheetMode || !S) return;
   const mode = sheetMode, body = $("sheet-body"), P = S.process;
-  if (mode === "captures") {
-    const list = await captureList(); if (sheetMode !== mode) return;
-    $("sheet-title").textContent = "Captures";
-    body.replaceChildren(el("p", {className: "sub", textContent: `Results go to ${P ? P.output_root : "the output folder"}.`}),
-      list.length ? el("ul", {className: "list"}, ...list.map((c) => { const b = el("button", {type: "button"}, c.name,
-        el("small", {textContent: `${c.duration_s != null ? fmtClock(c.duration_s) : "unfinished"} · ${c.video.length ? "LiDAR + MAX2" : "LiDAR only"}`}));
-        b.addEventListener("click", () => { reviewCapture = c.name; reviewGuide = null; openSheet("review"); });
-        return el("li", {}, b); })) : el("p", {textContent: "No captures yet."}));
-    return;
-  }
+  if (mode === "library") return renderLibrary(body);
+  if (mode === "deleted") return renderDeleted(body);
+  if (mode === "review") return renderReview(body);
   const job = P && P.job;
   if (mode === "process" && job) {
     const running = !job.finished_ns, at = job.stages.indexOf(job.stage);
@@ -611,7 +870,8 @@ async function renderSheet() {
     const steps = el("ol", {className: "steps", ariaLabel: "Processing steps"}, ...job.stages.map((name, i) => el("li", {
       className: !running && !job.error ? "done" : i < at ? "done" : i === at ? (running ? "now" : "failed") : "",
       textContent: STAGE[name] || name})));
-    const out = [el("p", {className: "sub", textContent: `${job.capture} · ${secs} s`}), bar, steps];
+    const waiting = P.queue && P.queue.length ? ` · ${P.queue.length} more waiting` : "";
+    const out = [el("p", {className: "sub", textContent: `${job.capture} · ${secs} s${waiting}`}), bar, steps];
     const r = job.result;
     if (job.error) out.push(el("ul", {className: "notes"}, el("li", {className: "bad", textContent: job.error})));
     else if (r && job.kind === "calibrate") out.push(el("div", {className: "facts"}, fact(String(r.correlation), "gyro correlation"),
@@ -634,34 +894,6 @@ async function renderSheet() {
     back.addEventListener("click", closeSheet); actions.append(back);
     out.push(actions); body.replaceChildren(...out); return;
   }
-  // review of one capture
-  const list = await captureList(); if (sheetMode !== mode) return;
-  const info = list.find((c) => c.name === reviewCapture), busy = !!(job && !job.finished_ns);
-  const G = reviewGuide, cal = P && P.calibration, video = !!(info && info.video.length);
-  $("sheet-title").textContent = G ? "✓ Scan saved" : "Capture";
-  const out = [el("p", {className: "sub", textContent: reviewCapture || ""}),
-    el("div", {className: "facts"}, fact(info && info.duration_s != null ? fmtClock(info.duration_s) : "—", "duration"),
-      fact(G ? `${G.distance_m.toFixed(1)} m` : "—", "walked"), fact(G ? String(G.photos) : "—", "photos"),
-      fact(G && G.coverage != null ? `${Math.round(G.coverage * 100)}%` : "—", "coverage"))];
-  const notes = [];
-  if (G && G.coverage != null && G.coverage < .6) notes.push(["warn", "Some surfaces were seen from one direction only; scan them from another side before leaving."]);
-  if (G && G.skipped) notes.push(["warn", `${G.skipped} stretch${G.skipped > 1 ? "es were" : " was"} too fast for photos`]);
-  if (G && G.max_new_ground_m >= 8) notes.push(["warn", `Walked ${G.max_new_ground_m} m without returning to a scanned area; drift may remain`]);
-  if (G && G.returns) notes.push(["good", `Returned to scanned areas ${G.returns} time${G.returns > 1 ? "s" : ""}`]);
-  if (info && !video) notes.push(["bad", "No MAX2 video in this capture: it can be neither a calibration nor a dataset"]);
-  if (!cal) notes.push(["", "No calibration yet. If this capture turned the fixed rig about all three axes, use it as the calibration."]);
-  if (notes.length) out.push(el("ul", {className: "notes"}, ...notes.map(([c, t]) => el("li", {className: c, textContent: t}))));
-  const make = el("button", {type: "button", textContent: "Make 3DGS dataset", className: cal ? "primary" : "secondary"});
-  const calibrate = el("button", {type: "button", textContent: "Use as calibration", className: cal ? "secondary" : "primary"});
-  make.disabled = !cal || busy || !video; calibrate.disabled = busy || !video;
-  make.addEventListener("click", () => startJob("dataset")); calibrate.addEventListener("click", () => startJob("calibrate"));
-  const again = el("button", {className: "secondary", type: "button", textContent: "Scan again"});
-  again.addEventListener("click", closeSheet);
-  out.push(el("div", {className: "actions"}, ...(cal ? [make, el("div", {className: "row"}, calibrate, again)]
-    : [calibrate, el("div", {className: "row"}, make, again)])));
-  if (busy) out.push(el("p", {className: "sub", textContent: `Another job is running (${job.capture}).`}));
-  if (P) out.push(offsetInputs(P));
-  body.replaceChildren(...out);
 }
 </script>
 </body>

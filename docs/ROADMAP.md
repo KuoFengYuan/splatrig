@@ -63,7 +63,8 @@ after agreeing on what capture data can be released.
   both devices; with `--slam` it adds a live GLIM route, pose, camera axis and voxel
   map preview. Calibration and dataset processing start from the same page.
   Coverage feedback, motion warnings and revisit prompts follow the dataset's photo
-  rule; they are predictions, not measured image quality.
+  rule; they are predictions, not measured image quality. A scan library lists,
+  renames, deletes (Recently Deleted) and previews datasets.
 - Bounded map storage, status/recovery and reproducible installation.
 - AnyReplica external-scan adapter for review/training, with explicit axes/units.
 - Demonstration footage from physical hardware, calibration records and a sample.

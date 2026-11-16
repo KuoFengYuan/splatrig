@@ -266,7 +266,34 @@ tools/splatrig-ros live            # --gopro none for LiDAR only
   **Captures** opens the same sheet for an earlier recording.
 - The two buttons run `calibrate-gyro` (**Use as calibration**) and `process-capture`
   (**Make 3DGS dataset**), the same functions as the commands. The sheet then shows
-  each step with a progress bar, and the result or the error.
+  each step with a progress bar, and the result or the error. Jobs started while
+  another runs wait in line; a waiting job can be removed.
+- **Scans** (`library.py`) lists the recordings like a project library.
+  - **Cards:** cover, name, date, duration, size and status (Not processed,
+    Calibration, Queued, Processing n/9, Dataset ready, Failed), plus tags such as
+    LiDAR only or current calibration.
+  - **Cover:** the live map snapshot taken at Stop, or else the dataset's first photo.
+  - **Names:** automatic names ("Monday afternoon scan") are numbered when they
+    repeat; a scan can be renamed (40 characters).
+  - **Search, sort and filter:** search by name; sort by newest, oldest, name or
+    size; filter by with or without a dataset.
+  - **Select mode** deletes several scans at once.
+  - **Storage line:** recordings, results and free space.
+  - **Where data lives:** captures are not modified. Names, the guide's summary at
+    Stop and covers live in `<output-root>/library/`.
+- **Deleting** moves the capture and its results into `.deleted` folders with a
+  dated marker.
+  - Recently Deleted shows the days left and can recover a scan or delete it for
+    good. Deleting for good asks for DELETE to be typed, and the server refuses an
+    unnamed purge without `all: true`.
+  - Expired scans are removed when the console starts (30 days).
+  - Scans that are recording, processing, waiting, or the current calibration
+    cannot be deleted.
+- **Preview dataset** draws the dataset's coloured points and a mark for each image
+  (where it was taken and which way it looked), with a strip of thumbnails whose
+  masked pixels are tinted red. Choosing a thumbnail puts the eye at that camera
+  with its field of view and lays the photo over the points, with an opacity
+  slider, to check alignment by eye.
   - Behavior:
     - One job runs at a time, in the background.
     - The panel shows the current step and then the result or the error.
@@ -317,6 +344,9 @@ tools/splatrig-ros live            # --gopro none for LiDAR only
   Datasets were never affected: each is rebuilt by its own offline GLIM run.
   Checked by replaying a recorded bag into a console and recording twice: the map
   emptied at each start and was tracked again within 6 s, with one GLIM throughout.
+- Checked with Playwright and Chrome at 1280×800 and 390×844 on copies of real
+  datasets: library, search, detail, preview, a photo laid over its points (walls,
+  monitors and the desk line up), and leaving the preview, with no page errors.
 - The pose is polled every 0.1 s and GLIM's newest scan ("Live scan", cyan) every
   0.2 s. The map and route refresh every second, the coverage cells every 2 s.
 - Checked by replaying the 35 s capture of 2026-11-16 into a console in an isolated

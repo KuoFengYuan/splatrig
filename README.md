@@ -143,8 +143,16 @@ axes, and a measured camera offset.
 ### 5. Make the dataset
 
 In the panel shown after you stop, press **Make 3DGS dataset**. Processing takes a
-few minutes and lists each step. When it finishes, **Copy dataset path** copies the
-folder path.
+few minutes and lists each step; more jobs wait in line. When it finishes,
+**Preview dataset** shows the coloured points and where each photo was taken.
+Pick a photo in the strip to look from its camera with the photo laid over the
+points, to check that they line up.
+
+**Scans** (right) lists every recording with its status:
+- Search, sort and filter, and rename a scan.
+- Delete moves a scan and its results to Recently Deleted for 30 days.
+- Deleting for good asks you to type DELETE.
+- The scan of the current calibration cannot be deleted.
 
 The dataset is written to `~/splatrig-runs/<capture>/dataset/` in COLMAP layout:
 `images/`, `sparse/0/`, `points.ply` with colours, and `masks/` for the rig and

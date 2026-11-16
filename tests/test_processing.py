@@ -124,8 +124,11 @@ class ProcessorTests(unittest.TestCase):
         self.jobs.release.clear()
         status = self.processor.start("calibrate", "capture-rot")
         self.assertEqual(status["job"]["stages"], ["video", "fit"])
-        with self.assertRaisesRegex(ValueError, "already running"):
+        with self.assertRaisesRegex(ValueError, "already waiting"):
             self.processor.start("calibrate", "capture-rot")
+        deadline = time.monotonic() + 5  # the job thread reports its first step
+        while self.processor.status()["job"]["stage"] is None and time.monotonic() < deadline:
+            time.sleep(0.01)
         self.assertEqual(self.processor.status()["job"]["stage"], "video")
         self.jobs.release.set()
         job = wait(self.processor)
@@ -167,6 +170,31 @@ class ProcessorTests(unittest.TestCase):
         self.processor.start("dataset", "capture-scan", [0, 0, 0.1])
         wait(self.processor)
         self.assertEqual(self.jobs.calls[-1][4], (0.0, 0.0, 0.1))
+
+    def test_jobs_queue_and_report_when_finished(self):
+        capture(self.captures, "capture-rot")
+        capture(self.captures, "capture-a")
+        capture(self.captures, "capture-b")
+        finished = []
+        self.processor.on_finish = lambda job: finished.append((job["kind"], job["capture"]))
+        self.processor.start("calibrate", "capture-rot")
+        wait(self.processor)
+        self.jobs.release.clear()
+        self.processor.start("dataset", "capture-a")
+        status = self.processor.start("dataset", "capture-b")
+        self.assertEqual(status["queue"], [{"kind": "dataset", "capture": "capture-b"}])
+        with self.assertRaisesRegex(ValueError, "already waiting"):
+            self.processor.start("dataset", "capture-b")
+        self.processor.start("calibrate", "capture-b")
+        self.processor.unqueue("capture-b")
+        self.assertEqual(self.processor.status()["queue"], [])
+        self.processor.start("dataset", "capture-b")
+        self.jobs.release.set()
+        deadline = time.monotonic() + 5
+        while len(finished) < 3 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(finished, [("calibrate", "capture-rot"), ("dataset", "capture-a"),
+                                    ("dataset", "capture-b")])
 
     def test_failure_is_reported_and_settings_unchanged(self):
         capture(self.captures, "capture-rot")
