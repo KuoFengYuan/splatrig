@@ -1,20 +1,34 @@
-<p align="center"><img src="docs/assets/banner.svg" alt="SplatRig" width="100%"></p>
-
 # SplatRig
+
+[![Check](https://github.com/KuoFengYuan/splatrig/actions/workflows/check.yml/badge.svg)](https://github.com/KuoFengYuan/splatrig/actions/workflows/check.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)
 
 [English](README.md) | **繁體中文**
 
-用手持的 GoPro MAX2 + Livox Mid-360S 掃描場景，輸出 3DGS 可訓練的 COLMAP 資料集。
-掃描時可即時看到點雲、路線與相機位置。
+SplatRig 錄製手持的 Livox Mid-360S + GoPro MAX2 設備，並把每段錄影轉成 Gaussian
+splatting 用的 COLMAP 資料集。掃描時可在瀏覽器介面看到即時的 SLAM 地圖。
 
-目前狀態：即時介面、錄製與離線處理都能用；相機平移量仍是手動輸入，輸出標示為暫定，
-精度尚未量測。
+> **狀態：** 開發初期，只在一台桌機上、感測器接線的情況下測試過。資料集標示為暫定，
+> 精度尚未量測。
 
-文件：[硬體](docs/HARDWARE.zh-TW.md) · [資料格式](docs/FORMAT.zh-TW.md) · [開發路線](docs/ROADMAP.zh-TW.md) · [測試紀錄](docs/LOCAL_TESTS.zh-TW.md)
+## 功能
 
-## 部署
+- 即時介面：GLIM 地圖、路線、相機位姿、覆蓋率與速度警告
+- 一行指令啟動，並可檢查環境（`doctor`）
+- 用 30 秒的旋轉錄影校正相機與 LiDAR（旋轉、時間差、位置）
+- 輸出資料集：選取關鍵幀、切成立方體視角、點雲上色、操作者遮罩
 
-Ubuntu 24.04。編譯前先 `conda deactivate`。
+## 需求
+
+- Ubuntu 24.04 與 ROS 2 Jazzy
+- Livox Mid-360S（乙太網路）、GoPro MAX2（USB）
+- [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2)、
+  [GLIM](https://github.com/koide3/glim)、ffmpeg、linuxptp
+
+## 安裝
+
+編譯前先 `conda deactivate`。
 
 1. 安裝 [ROS 2 Jazzy](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html)，再裝：
 
@@ -65,39 +79,86 @@ Ubuntu 24.04。編譯前先 `conda deactivate`。
 
 ## 使用
 
+### 1. 準備設備
+
+- 把 MAX2 和 LiDAR 互相鎖死。之後只要固定方式有變，就要重新校正。
+- LiDAR 接上電源與網路轉接器。
+- MAX2 用 USB 接上並開機。
+
+### 2. 啟動介面
+
 ```sh
-tools/splatrig-ros doctor   # 檢查環境，列出缺少的項目
-tools/splatrig-ros start    # 啟動 driver、介面與 GLIM，開啟瀏覽器
+cd splatrig
+tools/splatrig-ros doctor   # 應全部 OK；MAX2 可以只是 WARN
+tools/splatrig-ros start    # 啟動 driver、GLIM 與介面
 ```
 
-也可以從應用程式選單點「SplatRig」。Ctrl+C 結束。
+也可以從應用程式選單點「SplatRig」。介面位於 http://127.0.0.1:8090/。拿穩設備不動，
+直到地圖出現、左上 **Devices** 變綠色。
 
-網頁的用法和手機掃描 app 一樣：
+### 3. 校正（第一次使用，以及每次改變固定方式後）
 
-- 按圓形按鈕開始掃描，再按一次停止。
-- 掃描時，畫面上方顯示時間，並一次只顯示一則提示：放慢、轉太快、回到掃過的地方。
-- 按鈕外圈與 **Coverage** 顯示已從多個方向看過的範圍。
+1. 按圓形按鈕。
+2. 靜止 3 秒。
+3. 繞三個軸轉動設備約 30 秒：左右轉、上下點頭、左右歪。每次轉動超過 45°，但不要甩。
+4. 靜止 3 秒，再按一次按鈕。
+5. 在跳出的面板按 **Use as calibration**。
 
-停止後會跳出檢視面板：
+結果應該是：陀螺儀相關係數 0.95 以上、三個軸都是「good」，而且相機位移顯示已量測。
 
-1. 每次固定方式改變後做一次：錄一段約 30 秒、拿著固定好的設備繞三個軸轉動的影片，
-   按 **Use as calibration**。這一步也會量出 MAX2 相對 LiDAR 的位置。
-2. 掃描錄影則按 **Make 3DGS dataset**。
+### 4. 掃描
 
-**Captures** 可以找到之前的錄影。結果放在 `~/splatrig-runs/`，介面會記住校正檔與位移。
-也可以在終端機執行：
+1. 按圓形按鈕，靜止 3 秒。
+2. 用一般走路一半的速度前進，每 30 cm 會取一張照片。
+3. 轉向放慢，轉 90° 至少花 3 秒。
+4. 設備舉高、放在身體前方，讓人保持在設備後面。
+5. 依照畫面上方的提示操作，見下表。
+6. 留意按鈕外圈：大部分表面都從多個方向看過後會變綠色。**Coverage** 會標出還是紅色的地方。
+7. 回到起點，靜止 3 秒，再按一次按鈕。
+
+| 提示 | 怎麼做 |
+|---|---|
+| Turning too fast · photos … will be dropped | 放慢；取到照片後紅框就會消失 |
+| Nearly too fast | 稍微放慢 |
+| Return to an area you scanned | 走回已掃過的地方，讓 SLAM 修正漂移 |
+| Back in a scanned area | 繼續掃描 |
+| SLAM lost tracking | 先靜止，再慢慢移動 |
+| No PTP time sync | 執行一次 `sudo tools/install-ptp-service <lidar-nic>` |
+| The MAX2 is not recording | 檢查相機；沒有錄影就沒有照片 |
+
+### 5. 產出資料集
+
+在停止後跳出的面板按 **Make 3DGS dataset**。處理約需幾分鐘，面板會列出每個步驟。完成後，
+按 **Copy dataset path** 可以複製資料夾路徑。
+
+資料集寫在 `~/splatrig-runs/<錄影名稱>/dataset/`，為 COLMAP 格式：`images/`、
+`sparse/0/`、有顏色的 `points.ply`，能估計操作者時另有 `masks/`。之前的錄影在
+**Captures** 裡。
+
+### 6. 訓練
+
+任何讀得了 COLMAP 資料夾的訓練器都可以。例如原版
+[3D Gaussian Splatting](https://github.com/graphdeco-inria/gaussian-splatting)：
 
 ```sh
-# 裝好設備後先做一次：拿著設備繞三個軸轉動約 30 秒並錄下來
-tools/splatrig-ros calibrate-gyro ~/captures/<旋轉錄影> --output runs/calibration
+python train.py -s ~/splatrig-runs/<錄影名稱>/dataset
+```
 
+支援遮罩的訓練器（例如 nerfstudio）也可以使用 `masks/`。
+
+結束時在終端機按 Ctrl+C，介面、GLIM 與 driver 會一起關閉。
+
+### 指令列
+
+不開介面，直接執行校正與處理：
+
+```sh
+tools/splatrig-ros calibrate-gyro ~/captures/<旋轉錄影> --output runs/calibration
 tools/splatrig-ros process-capture ~/captures/<錄影> --output runs/<名稱> \
   --calibration runs/calibration/calibration.json
 ```
 
-輸出資料夾是 COLMAP 格式（`images/`、`sparse/0/`、有顏色的 `points.ply`；能估計操作者時另有 `masks/`）。
-
-## 沒有硬體時
+### 沒有硬體時
 
 ```sh
 python3 -m venv .venv && source .venv/bin/activate && pip install -e .
@@ -108,6 +169,13 @@ splatrig export runs/demo --output runs/colmap
 
 示範資料是合成的，只用來驗證軟體流程。
 
+## 文件
+
+- [硬體整合](docs/HARDWARE.zh-TW.md)
+- [資料格式](docs/FORMAT.zh-TW.md)
+- [開發路線](docs/ROADMAP.zh-TW.md)
+- [本機測試紀錄](docs/LOCAL_TESTS.zh-TW.md)
+
 ## 開發
 
 ```sh
@@ -116,7 +184,7 @@ python tools/smoke.py
 python tools/check_project.py
 ```
 
-工作規範見 [AGENTS.md](AGENTS.zh-TW.md)。
+請參考 [CONTRIBUTING](CONTRIBUTING.zh-TW.md) 與 [AGENTS.md](AGENTS.zh-TW.md)。
 
 ## 授權
 
