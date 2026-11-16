@@ -213,6 +213,30 @@ tools/splatrig-ros live            # --gopro none for LiDAR only
   approximate, not synchronized.
 - POST requests require an `X-SplatRig: 1` header. The server never binds to other
   interfaces; phone access needs a separate, deliberate setup.
+- The **Process a capture** panel runs `calibrate-gyro` (**Use as calibration**) or
+  `process-capture` (**Make 3DGS dataset**) on a selected capture. These are the
+  same functions as the commands.
+  - Behavior:
+    - One job runs at a time, in the background.
+    - The panel shows the current step and then the result or the error.
+    - Jobs are refused while recording, and Record is refused while a job runs.
+  - Output:
+    - Results go to `--output-root` (default `~/splatrig-runs`).
+    - The calibration goes in `calibration-<capture>`, the dataset in `<capture>`.
+    - A repeated run gets `-2`, `-3`; nothing is overwritten.
+  - Saved settings:
+    - The newest calibration and camera offset are kept in
+      `<output-root>/console.json`.
+    - They draw the camera pose in the Map view right away.
+    - A restarted console uses them, unless `--calibration` or `--camera-offset` is
+      given. A value given that way becomes the saved one.
+  - Stopping the console mid-job publishes nothing and names the leftover
+    `.<name>-work` folder.
+  - Checked through the API and the page with the 35 s rotation capture of
+    2026-11-16:
+    - Calibration took 13 s, with gyro correlation 0.998.
+    - The dataset took 77 s: 14 frames, 70 images, 270 frames skipped as too fast,
+      and no masks, because the rig travelled 0.82 m.
 - With the MAX2 preview running, ~380 KB Livox frames overflowed the 208 KiB default
   UDP receive buffer and best-effort DDS dropped whole frames (1–3 Hz). `live`,
   `ros-pointcloud` and the bag recorder they start use the packaged Fast DDS profile

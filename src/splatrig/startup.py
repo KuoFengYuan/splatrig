@@ -250,8 +250,9 @@ def open_browser(url: str, delay=1.5):
 
 
 def start(port=8090, captures: Path | None = None, gopro="auto", slam=True, browser=True,
-          calibration: Path | None = None, camera_offset=(0.0, 0.0, 0.0),
-          launch=DRIVER_LAUNCH, lidar_topic="/livox/lidar", imu_topic="/livox/imu"):
+          calibration: Path | None = None, camera_offset=None,
+          launch=DRIVER_LAUNCH, lidar_topic="/livox/lidar", imu_topic="/livox/imu",
+          output_root: Path | None = None):
     from .gopro import detect_camera
     from .live import serve
     results = checks(port, gopro, slam)
@@ -266,7 +267,7 @@ def start(port=8090, captures: Path | None = None, gopro="auto", slam=True, brow
         serve(port, captures or Path.home() / "captures",
               detect_camera() if gopro == "auto" else (None if gopro == "none" else gopro),
               lidar_topic, imu_topic, live_slam=slam, calibration=calibration,
-              camera_offset=camera_offset,
+              camera_offset=camera_offset, output_root=output_root,
               ready=(lambda: open_browser(view)) if browser else None)
     finally:
         if driver:

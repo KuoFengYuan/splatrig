@@ -79,8 +79,10 @@ def parser():
     start.add_argument("--no-browser", action="store_true", help="Do not open a browser")
     start.add_argument("--calibration", type=Path,
                        help="calibration.json from calibrate-gyro, to show the camera pose")
-    start.add_argument("--camera-offset", type=float, nargs=3, default=(0.0, 0.0, 0.0),
-                       metavar=("X", "Y", "Z"))
+    start.add_argument("--camera-offset", type=float, nargs=3, metavar=("X", "Y", "Z"),
+                       help="MAX2 center in the LiDAR frame, meters (default: the last one used)")
+    start.add_argument("--output-root", type=Path, default=Path.home() / "splatrig-runs",
+                       help="Where the console writes calibrations and datasets")
     start.add_argument("--driver-launch", default="msg_MID360s_launch.py",
                        help="livox_ros_driver2 launch file for this LiDAR model")
     doctor = commands.add_parser(
@@ -99,8 +101,10 @@ def parser():
                       help="Run GLIM live and show the route, camera pose and a voxel map")
     live.add_argument("--calibration", type=Path,
                       help="calibration.json from calibrate-gyro, to show the camera pose")
-    live.add_argument("--camera-offset", type=float, nargs=3, default=(0.0, 0.0, 0.0),
-                      metavar=("X", "Y", "Z"))
+    live.add_argument("--camera-offset", type=float, nargs=3, metavar=("X", "Y", "Z"),
+                      help="MAX2 center in the LiDAR frame, meters (default: the last one used)")
+    live.add_argument("--output-root", type=Path, default=Path.home() / "splatrig-runs",
+                      help="Where the console writes calibrations and datasets")
     live.add_argument("--lidar-topic", default="/livox/lidar")
     live.add_argument("--imu-topic", default="/livox/imu")
     glim = commands.add_parser(
@@ -199,7 +203,8 @@ def main(argv=None):
             from .startup import start as start_console
             start_console(args.port, args.captures, args.gopro, slam=not args.no_slam,
                           browser=not args.no_browser, calibration=args.calibration,
-                          camera_offset=tuple(args.camera_offset), launch=args.driver_launch)
+                          camera_offset=tuple(args.camera_offset) if args.camera_offset else None,
+                          launch=args.driver_launch, output_root=args.output_root)
             return 0
         elif args.command == "live":
             from .gopro import detect_camera
@@ -209,7 +214,9 @@ def main(argv=None):
                 host = detect_camera()
             serve(args.port, args.captures, host, args.lidar_topic, args.imu_topic,
                   preview=not args.no_preview, live_slam=args.slam,
-                  calibration=args.calibration, camera_offset=tuple(args.camera_offset))
+                  calibration=args.calibration,
+                  camera_offset=tuple(args.camera_offset) if args.camera_offset else None,
+                  output_root=args.output_root)
             report = {"live": "stopped"}
         elif args.command == "glim-bag":
             report = to_glim_bag(args.bag, args.output, lidar_topic=args.lidar_topic,
