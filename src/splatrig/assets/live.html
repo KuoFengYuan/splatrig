@@ -737,7 +737,8 @@ async function renderDeleted(body) {
     const recover = el("button", {type: "button", className: "secondary small", textContent: "Recover"});
     const remove = el("button", {type: "button", className: "danger small", textContent: "Delete"});
     recover.addEventListener("click", () => post("/api/scans/restore", {ids: [d.id]}).then(renderSheet, showError));
-    remove.addEventListener("click", () => { if (confirm(`Delete "${d.name}" for good? This cannot be undone.`))
+    remove.addEventListener("click", () => {
+      if (prompt(`Delete "${d.name}" for good? Its recording and results cannot be recovered.\nType DELETE to confirm.`) !== "DELETE") return;
       post("/api/scans/purge", {ids: [d.id]}).then(renderSheet, showError); });
     out.push(el("div", {className: "deleted-row"}, el("div", {}, el("b", {textContent: d.name}),
       el("small", {className: d.days_left <= 3 ? "soon" : "", textContent: `${d.days_left} days left · ${fmtBytes(d.size_bytes)}`})), recover, remove));
@@ -746,8 +747,9 @@ async function renderDeleted(body) {
     const all = el("button", {type: "button", className: "secondary", textContent: "Recover all"});
     const empty = el("button", {type: "button", className: "danger", textContent: "Empty Recently Deleted"});
     all.addEventListener("click", () => post("/api/scans/restore", {ids: list.map((d) => d.id)}).then(renderSheet, showError));
-    empty.addEventListener("click", () => { if (confirm("Delete everything in Recently Deleted for good?"))
-      post("/api/scans/purge", {ids: []}).then(renderSheet, showError); });
+    empty.addEventListener("click", () => {
+      if (prompt(`Delete all ${list.length} scans in Recently Deleted for good? Their recordings and results cannot be recovered.\nType DELETE to confirm.`) !== "DELETE") return;
+      post("/api/scans/purge", {ids: [], all: true}).then(renderSheet, showError); });
     out.push(el("div", {className: "row"}, all, empty));
   }
   body.replaceChildren(...out);

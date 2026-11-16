@@ -283,13 +283,15 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
                 else None, "calibration": processor.calibration() if processor else None}
 
     def protected() -> set:
-        names = set(context()["queued"])
+        """Scans that must not be deleted now: recording, processing, queued, or the
+        current calibration (which needs the context to be recognized)."""
         state = context()
+        names = set(state["queued"])
         if state["recording"]:
             names.add(state["recording"])
         if state["job"] and not state["job"].get("finished_ns"):
             names.add(state["job"]["capture"])
-        for entry in library.list()["scans"] if library else []:
+        for entry in library.list(**state)["scans"] if library else []:
             if entry["current_calibration"]:
                 names.add(entry["id"])
         return names
@@ -452,6 +454,9 @@ def make_handler(lidar: LidarState, camera: Camera, recorder: Recorder,
             if path == "/api/scans/restore":
                 return {"restored": library.restore(ids)}
             if path == "/api/scans/purge":
+                # Deleting for good: an empty list means everything, and must say so.
+                if not ids and data.get("all") is not True:
+                    raise ValueError("Name the scans to delete for good, or send all: true")
                 return {"purged": library.purge(ids or None)}
             raise ValueError("not found")
 

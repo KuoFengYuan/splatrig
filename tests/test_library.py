@@ -138,6 +138,8 @@ class LibraryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.library.restore(["capture-a"])
         self.library.delete(["capture-a", "capture-b"])
+        self.assertEqual({d["id"]: d["name"] for d in self.library.deleted()},
+                         {"capture-a": "Kept name", "capture-b": "Monday afternoon scan"})
         self.now += 31 * DAY
         record(self.captures, "capture-c", datetime(2026, 12, 17, 9, 0))
         self.library.delete(["capture-c"])
@@ -167,7 +169,8 @@ class EndpointTests(unittest.TestCase):
         record(self.captures, "capture-a", datetime(2026, 11, 16, 14, 0))
         dataset(root, "capture-a")
         self.library = Library(self.captures, root)
-        processor = Processor(self.captures, root)
+        self.root = root
+        self.processor = processor = Processor(self.captures, root)
         recorder = Recorder(self.captures, Camera(None), command=[sys.executable, "-c", "pass"])
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(
             LidarState(), Camera(None), recorder, processor=processor, library=self.library))
@@ -213,8 +216,19 @@ class EndpointTests(unittest.TestCase):
             code, thumb = self.call("/api/scans/capture-a/thumb/00000001.png")
             self.assertEqual((code, thumb[:2]), (200, b"\xff\xd8"))
         self.assertEqual(self.call("/api/scans/delete", {"ids": "capture-a"})[0], 409)
+        # The current calibration's scan cannot be deleted.
+        calibration = self.root / "calibration-capture-a" / "calibration.json"
+        calibration.parent.mkdir()
+        calibration.write_text("{}")
+        self.processor.settings["calibration"] = str(calibration)
+        code, body = self.call("/api/scans/delete", {"ids": ["capture-a"]})
+        self.assertEqual((code, "in use" in json.loads(body)["error"]), (409, True))
+        self.assertTrue((self.captures / "capture-a").exists())
+        self.processor.settings["calibration"] = None
         self.assertEqual(self.call("/api/scans/delete", {"ids": ["capture-a"]})[0], 200)
         self.assertEqual(json.loads(self.call("/api/scans/deleted")[1])[0]["name"], "Desk")
+        self.assertEqual(self.call("/api/scans/purge", {"ids": []})[0], 409)  # must say all
+        self.assertEqual(json.loads(self.call("/api/scans/deleted")[1])[0]["id"], "capture-a")
         self.assertEqual(self.call("/api/scans/restore", {"ids": ["capture-a"]})[0], 200)
         self.assertEqual(json.loads(self.call("/api/scans")[1])["total"], 1)
         self.assertEqual(self.call("/api/scans/nothing/points")[0], 404)

@@ -246,7 +246,12 @@ class Library:
                 stamp = marker.stat().st_mtime
             left = self.keep_days - (self.clock() - stamp) / 86400
             meta = self.meta(name)
-            found.append({"id": name, "name": meta.get("name") or name, "deleted": stamp,
+            try:
+                log = json.loads((trash / name / "capture-log.json").read_text(encoding="utf-8"))
+                automatic = default_name(log["lidar"]["started_ns"] / 1e9)
+            except (OSError, ValueError, KeyError, TypeError):
+                automatic = name
+            found.append({"id": name, "name": meta.get("name") or automatic, "deleted": stamp,
                           "days_left": max(0, int(left + 0.999)),
                           "size_bytes": self.size(trash / name) +
                           self.size(self.root / DELETED / name)})
