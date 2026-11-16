@@ -79,21 +79,78 @@ splatting 用的 COLMAP 資料集。掃描時可在瀏覽器介面看到即時�
 
 ## 使用
 
+### 1. 準備設備
+
+- 把 MAX2 和 LiDAR 互相鎖死。之後只要固定方式有變，就要重新校正。
+- LiDAR 接上電源與網路轉接器。
+- MAX2 用 USB 接上並開機。
+
+### 2. 啟動介面
+
 ```sh
-tools/splatrig-ros doctor   # 檢查環境
+cd splatrig
+tools/splatrig-ros doctor   # 應全部 OK；MAX2 可以只是 WARN
 tools/splatrig-ros start    # 啟動 driver、GLIM 與介面
 ```
 
-也可以從應用程式選單點「SplatRig」。介面位於 http://127.0.0.1:8090/，Ctrl+C 會全部關閉。
+也可以從應用程式選單點「SplatRig」。介面位於 http://127.0.0.1:8090/。拿穩設備不動，
+直到地圖出現、左上 **Devices** 變綠色。
 
-1. **校正**（每次固定方式改變後做一次）：錄一段約 30 秒、拿著固定好的設備繞三個軸
-   轉動的影片，然後按 **Use as calibration**。
-2. **掃描**：慢慢走並錄製，然後按 **Make 3DGS dataset**。
+### 3. 校正（第一次使用，以及每次改變固定方式後）
+
+1. 按圓形按鈕。
+2. 靜止 3 秒。
+3. 繞三個軸轉動設備約 30 秒：左右轉、上下點頭、左右歪。每次轉動超過 45°，但不要甩。
+4. 靜止 3 秒，再按一次按鈕。
+5. 在跳出的面板按 **Use as calibration**。
+
+結果應該是：陀螺儀相關係數 0.95 以上、三個軸都是「good」，而且相機位移顯示已量測。
+
+### 4. 掃描
+
+1. 按圓形按鈕，靜止 3 秒。
+2. 用一般走路一半的速度前進，每 30 cm 會取一張照片。
+3. 轉向放慢，轉 90° 至少花 3 秒。
+4. 設備舉高、放在身體前方，讓人保持在設備後面。
+5. 依照畫面上方的提示操作，見下表。
+6. 留意按鈕外圈：大部分表面都從多個方向看過後會變綠色。**Coverage** 會標出還是紅色的地方。
+7. 回到起點，靜止 3 秒，再按一次按鈕。
+
+| 提示 | 怎麼做 |
+|---|---|
+| Turning too fast · photos … will be dropped | 放慢；取到照片後紅框就會消失 |
+| Nearly too fast | 稍微放慢 |
+| Return to an area you scanned | 走回已掃過的地方，讓 SLAM 修正漂移 |
+| Back in a scanned area | 繼續掃描 |
+| SLAM lost tracking | 先靜止，再慢慢移動 |
+| No PTP time sync | 執行一次 `sudo tools/install-ptp-service <lidar-nic>` |
+| The MAX2 is not recording | 檢查相機；沒有錄影就沒有照片 |
+
+### 5. 產出資料集
+
+在停止後跳出的面板按 **Make 3DGS dataset**。處理約需幾分鐘，面板會列出每個步驟。完成後，
+按 **Copy dataset path** 可以複製資料夾路徑。
 
 資料集寫在 `~/splatrig-runs/<錄影名稱>/dataset/`，為 COLMAP 格式：`images/`、
-`sparse/0/`、`points.ply`，能估計操作者時另有 `masks/`。之前的錄影在 **Captures** 裡。
+`sparse/0/`、有顏色的 `points.ply`，能估計操作者時另有 `masks/`。之前的錄影在
+**Captures** 裡。
 
-在終端機執行：
+### 6. 訓練
+
+任何讀得了 COLMAP 資料夾的訓練器都可以。例如原版
+[3D Gaussian Splatting](https://github.com/graphdeco-inria/gaussian-splatting)：
+
+```sh
+python train.py -s ~/splatrig-runs/<錄影名稱>/dataset
+```
+
+支援遮罩的訓練器（例如 nerfstudio）也可以使用 `masks/`。
+
+結束時在終端機按 Ctrl+C，介面、GLIM 與 driver 會一起關閉。
+
+### 指令列
+
+不開介面，直接執行校正與處理：
 
 ```sh
 tools/splatrig-ros calibrate-gyro ~/captures/<旋轉錄影> --output runs/calibration

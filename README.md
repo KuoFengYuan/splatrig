@@ -80,23 +80,84 @@ Run `conda deactivate` before building.
 
 ## Usage
 
+### 1. Prepare the rig
+
+- Fix the MAX2 and the LiDAR rigidly to each other. Any later change to the mount
+  needs a new calibration.
+- Power the LiDAR and connect its Ethernet adapter.
+- Connect the MAX2 by USB and switch it on.
+
+### 2. Start the console
+
 ```sh
-tools/splatrig-ros doctor   # check the machine
-tools/splatrig-ros start    # start the driver, GLIM and the console
+cd splatrig
+tools/splatrig-ros doctor   # everything OK; the MAX2 may only warn
+tools/splatrig-ros start    # starts the driver, GLIM and the console
 ```
 
 Or start "SplatRig" from the application menu. The console opens at
-http://127.0.0.1:8090/; Ctrl+C stops everything.
+http://127.0.0.1:8090/. Hold the rig still until the map appears and **Devices**
+(top left) turns green.
 
-1. **Calibrate** (once per mount): record about 30 s turning the fixed rig about all
-   three axes, then press **Use as calibration**.
-2. **Scan**: record while walking slowly, then press **Make 3DGS dataset**.
+### 3. Calibrate (first time and after changing the mount)
+
+1. Press the round button.
+2. Hold still for 3 s.
+3. Turn the rig about all three axes for about 30 s: left and right, up and down,
+   and a roll. Keep each turn larger than 45°, but not jerky.
+4. Hold still for 3 s, then press the button again.
+5. In the panel that opens, press **Use as calibration**.
+
+The result should show a gyro correlation of at least 0.95, "good" for all three
+axes, and a measured camera offset.
+
+### 4. Scan
+
+1. Press the round button and hold still for 3 s.
+2. Walk at about half your normal pace. A photo is taken every 30 cm.
+3. Turn slowly: a 90° turn should take 3 s or more.
+4. Hold the rig high and in front of you, so that you stay behind it.
+5. Follow the message at the top of the screen. The table below lists them.
+6. Watch the ring around the button: it turns green once most surfaces have been
+   seen from several directions. **Coverage** shows which areas are still red.
+7. Finish where you started, hold still for 3 s and press the button again.
+
+| Message | What to do |
+|---|---|
+| Turning too fast · photos … will be dropped | Slow down; the red frame disappears once a photo is taken |
+| Nearly too fast | Slow down a little |
+| Return to an area you scanned | Walk back to a place you already scanned so SLAM can correct drift |
+| Back in a scanned area | Continue |
+| SLAM lost tracking | Hold still, then move slowly |
+| No PTP time sync | Run `sudo tools/install-ptp-service <lidar-nic>` once |
+| The MAX2 is not recording | Check the camera; the scan has no images without it |
+
+### 5. Make the dataset
+
+In the panel shown after you stop, press **Make 3DGS dataset**. Processing takes a
+few minutes and lists each step. When it finishes, **Copy dataset path** copies the
+folder path.
 
 The dataset is written to `~/splatrig-runs/<capture>/dataset/` in COLMAP layout:
-`images/`, `sparse/0/`, `points.ply`, and `masks/` when the operator could be
-estimated. Earlier recordings are under **Captures**.
+`images/`, `sparse/0/`, `points.ply` with colours, and `masks/` when the operator
+could be estimated. Earlier recordings are under **Captures**.
 
-From a terminal:
+### 6. Train
+
+Use any trainer that reads COLMAP folders. For example, with the original
+[3D Gaussian Splatting](https://github.com/graphdeco-inria/gaussian-splatting):
+
+```sh
+python train.py -s ~/splatrig-runs/<capture>/dataset
+```
+
+Trainers that support masks (for example nerfstudio) can also use `masks/`.
+
+Press Ctrl+C in the terminal to stop the console, GLIM and the driver.
+
+### Command line
+
+The same calibration and processing without the console:
 
 ```sh
 tools/splatrig-ros calibrate-gyro ~/captures/<rotation capture> --output runs/calibration
